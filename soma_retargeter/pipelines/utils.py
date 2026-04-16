@@ -15,6 +15,7 @@ class SourceType(IntEnum):
 class TargetType(IntEnum):
     """Enumeration of supported target model types."""
     UNITREE_G1 = auto()
+    AGIBOT_X2_ULTRA = auto()
 
 _SOURCE_TYPE_TO_STR = {
     SourceType.SOMA : "soma"
@@ -22,7 +23,8 @@ _SOURCE_TYPE_TO_STR = {
 _STR_TO_SOURCE_TYPE = {s : t for t, s in _SOURCE_TYPE_TO_STR.items()}
 
 _TARGET_TYPE_TO_STR = {
-    TargetType.UNITREE_G1 : "unitree_g1"
+    TargetType.UNITREE_G1 : "unitree_g1",
+    TargetType.AGIBOT_X2_ULTRA : "agibot_x2_ultra",
 }
 _STR_TO_TARGET_TYPE = {s : t for t, s in _TARGET_TYPE_TO_STR.items()}
 
@@ -131,14 +133,21 @@ def get_retargeter_config(source: SourceType, target: TargetType) -> dict:
     Raises:
         ValueError: If the source or target type is not supported.
     """
-    if target != TargetType.UNITREE_G1:
+    if target == TargetType.UNITREE_G1:
+        config_dir = 'unitree_g1'
+        if source == SourceType.SOMA:
+            filename = 'soma_to_g1_retargeter_config.json'
+        else:
+            raise ValueError(f"Unknown source type [{source}] for target [{target}].")
+    elif target == TargetType.AGIBOT_X2_ULTRA:
+        config_dir = 'agibot_x2_ultra'
+        if source == SourceType.SOMA:
+            filename = 'soma_to_x2_ultra_retargeter_config.json'
+        else:
+            raise ValueError(f"Unknown source type [{source}] for target [{target}].")
+    else:
         raise ValueError(f"Unknown target type [{target}].")
 
-    if source == SourceType.SOMA:
-        filename = 'soma_to_g1_retargeter_config.json'
-    else:
-        raise ValueError(f"Unknown source type [{source}] for target [{target}].")
-
     return io_utils.load_json(
-        io_utils.get_config_file('unitree_g1', filename)
+        io_utils.get_config_file(config_dir, filename)
     )

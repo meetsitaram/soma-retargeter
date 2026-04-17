@@ -14,7 +14,16 @@ This directory contains the retargeting configuration for the **Agibot X2 Ultra*
 
 ## Result
 
-![SOMA Retargeter -- Agibot X2 Ultra](soma-retargetter-agibot-x2.gif)
+<table>
+<tr>
+<td align="center"><b>Dance 1</b></td>
+<td align="center"><b>Dance 2</b></td>
+</tr>
+<tr>
+<td><img src="soma-retargetter-agibot-x2.gif" width="400" /></td>
+<td><img src="soma-retargetter-agibot-x2-dance2.gif" width="400" /></td>
+</tr>
+</table>
 
 ## Arm Retargeting: Challenges and Solution
 
@@ -56,3 +65,35 @@ With reduced rotation weights, the position objectives dominate the arm IK. Sinc
 ### Key Takeaway
 
 When onboarding a new robot with different joint axis conventions, the IK rotation weights must be tuned per-robot. High rotation weights that work for one kinematic structure can cause catastrophic IK failures on another, even when the robots are superficially similar humanoids. Position-based tracking is more robust across different kinematic chains.
+
+## Wrist Offset Tuning
+
+### Problem
+
+After fixing arm retargeting, the X2 Ultra's wrist joints were stuck at their physical limits during most of the motion. Both wrists appeared bent backward or locked in unnatural poses.
+
+### Root Cause
+
+The X2 Ultra has much tighter wrist joint limits than the G1:
+
+| Joint | G1 range | X2 range |
+|-------|----------|----------|
+| Wrist pitch | ±92.5° | ±32° |
+| Wrist roll | ±45° | ±28° |
+
+The `joint_offsets` for `LeftHand` and `RightHand` in `soma_to_x2_ultra_scaler_config.json` were copied from the G1 configuration. These offsets define the transform from SOMA joint frames to robot link frames. Since the G1 offsets assumed wider wrist ranges, they placed the X2's neutral wrist pose outside its physical limits, causing the `JointLimitClamper` to hard-clamp the joints every frame.
+
+### Debugging Approach
+
+1. **CSV analysis**: Exported retargeted joint data and plotted human (BVH) vs robot (CSV) wrist positions, confirming 100% limit saturation on wrist pitch and roll.
+2. **Empirical axis sweep**: Systematically applied large Euler rotations (±30° to ±90°) on individual axes of the Hand offset quaternion and observed which robot wrist joints responded. This revealed the mapping: Y-rotation in the offset controls robot wrist pitch, X-rotation controls wrist roll.
+3. **Automated optimization was attempted** (`scipy.optimize.differential_evolution`) but small offset changes could not overcome the hard clamping, and numerically optimal solutions often looked visually unnatural.
+
+### Solution
+
+Applied targeted Euler corrections on top of the original G1 Hand offset quaternions to center the neutral wrist pose within X2's tighter limits:
+
+- **LeftHand**: Y (pitch) = -55°, X (roll) = +80° applied on top of G1 offset
+- **RightHand**: Y (pitch) = -55°, X (roll) = +80° applied on top of G1 offset
+
+This preserved the natural orientation of the G1 offsets while shifting the operating point into X2's valid range.

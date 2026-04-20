@@ -513,6 +513,16 @@ def main():
         type=lambda x: None if x == "None" else str(x),
         default="./assets/default_bvh_to_csv_converter_config.json",
         help="Input json config file.")
+    parser.add_argument(
+        "--bvh",
+        type=str,
+        default=None,
+        help="Optional BVH clip to pre-load into the interactive viewer.")
+    parser.add_argument(
+        "--csv",
+        type=str,
+        default=None,
+        help="Optional retargeted CSV clip to pre-load into the interactive viewer.")
 
     viewer, args = newton.examples.init(parser)
     if not pathlib.Path(args.config).exists():
@@ -523,6 +533,20 @@ def main():
     with wp.ScopedDevice(args.device):
         app = Viewer(viewer, config)
         if not isinstance(viewer, newton.viewer.ViewerNull):
+            if args.bvh:
+                bvh_path = pathlib.Path(args.bvh).expanduser().resolve()
+                if not bvh_path.is_file():
+                    print(f"[ERROR]: --bvh file not found: {bvh_path}")
+                    exit(1)
+                print(f"[INFO]: Pre-loading BVH: {bvh_path}")
+                app.load_bvh_file(str(bvh_path))
+            if args.csv:
+                csv_path = pathlib.Path(args.csv).expanduser().resolve()
+                if not csv_path.is_file():
+                    print(f"[ERROR]: --csv file not found: {csv_path}")
+                    exit(1)
+                print(f"[INFO]: Pre-loading CSV: {csv_path}")
+                app.load_csv_file(str(csv_path))
             app.run()
         else:
             app.batched_retargeting()

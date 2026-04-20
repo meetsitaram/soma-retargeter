@@ -13,12 +13,12 @@
     "enable_post_processing" : true,
 
     "smooth_joint_filter_objective_body_masks" : {
-        "left_shoulder_pitch_link" : 0.1,
-        "left_shoulder_roll_link"  : 1.0,
-        "left_shoulder_yaw_link"   : 0.3,
-        "right_shoulder_pitch_link": 0.1,
-        "right_shoulder_roll_link" : 1.0,
-        "right_shoulder_yaw_link"  : 0.3
+        "left_shoulder_pitch_link" : 0.05,
+        "left_shoulder_roll_link"  : 0.0,
+        "left_shoulder_yaw_link"   : 0.05,
+        "right_shoulder_pitch_link": 0.05,
+        "right_shoulder_roll_link" : 0.0,
+        "right_shoulder_yaw_link"  : 0.05
     },
 
     "ik_map": {

@@ -4,7 +4,7 @@
     "num_stabilization_frames": 5,
     "human_robot_scaler_config": "agibot_x2_ultra/soma_to_x2_ultra_scaler_config.json",
     "feet_stabilizer_config": "agibot_x2_ultra/x2_ultra_feet_stabilizer_config.json",
-    "model_height": 1.70,
+    "model_height": 1.40,
 
     "ik_iterations" : 24,
     "joint_limit_weight": 10.0,
@@ -49,7 +49,7 @@
         "LeftHand": {
             "t_body" : "left_wrist_roll_link",
             "r_body" : "left_wrist_roll_link",
-            "t_weight" : 2.0,
+            "t_weight" : 1.0,
             "r_weight" : 0.1
         },
         "RightArm": {
@@ -67,7 +67,7 @@
         "RightHand": {
             "t_body" : "right_wrist_roll_link",
             "r_body" : "right_wrist_roll_link",
-            "t_weight" : 2.0,
+            "t_weight" : 1.0,
             "r_weight" : 0.1
         },
         "LeftLeg": {

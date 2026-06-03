@@ -171,9 +171,21 @@ since deep manipulation is rare in the current dataset.
 
 <img src="known_issue_elbow_underbend.png" width="600" />
 
-### 2. Wrist pose collapse on high reaches
+### 2. Hand-to-face / hand-near-head is outside X2's arm workspace
 
-When the human reaches hand-to-face or any "above-shoulder + close-to-head" pose, the IK occasionally hops to a wrist configuration where the hand is folded backward against the forearm. This is an IK local minimum at the edge of `wrist_pitch`/`wrist_roll`'s reachable set; the cost surface has multiple basins near the limit and the per-frame solver picks the wrong basin a few times per clip. Increasing `ik_iterations` from 24 → 48 reduces but does not eliminate the flicker.
+When the human's hand reaches close to its own face or head, the
+wrist target sits in a region the X2 arm chain simply cannot reach:
+`shoulder_roll` is capped at only +3.5° of inward travel, the elbow
+rotates on the Y-axis, and the arm segments (~25 cm forearm + ~25 cm
+upper arm) are short relative to the human source. There is no joint
+configuration that puts the wrist near the head while keeping the
+hand right-side-up. The IK settles for the least-bad
+position-vs-orientation compromise, which leaves the hand folded or
+twisted somewhere lower than the human's hand. This is a
+reach/workspace limit, not a solver convergence problem -- raising
+`ik_iterations` doesn't change it. Real fixes require hardware
+changes (open `shoulder_roll` or lengthen the arm) or accepting a
+clipped pose at these frames.
 
 <img src="known_issue_face_reach.png" width="500" />
 
@@ -191,6 +203,5 @@ cost of the upper-body objective.
 
 ### Where to focus next
 
-- A per-clip retarget profile (manipulation profile: `t_weight=1.5`, locomotion profile: `t_weight=1.0`) would resolve (1) without affecting (3).
-- Adding a "preferred neutral pose" regularizer to the IK objective might smooth (2) by biasing the solver away from the wrist-folded basin.
-- (3) likely needs either a hardware spec change (open up `shoulder_roll`) or a residual learned policy on top of the retarget -- not a config tweak.
+- A per-clip retarget profile (manipulation profile: `t_weight=1.5`, locomotion profile: `t_weight=1.0`) would resolve (1) without affecting locomotion.
+- (2) and (3) are both fundamentally workspace/reach limits caused by X2's narrow `shoulder_roll` range and short-relative-to-human arm length. No config or solver tweak will close them. Real options are: (a) hardware change to open `shoulder_roll`, (b) re-targeting at the dataset level to mark unreachable frames and either drop them or learn a compensating policy on top, or (c) accepting the clipped poses for those frames.

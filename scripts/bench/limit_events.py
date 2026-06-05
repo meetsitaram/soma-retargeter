@@ -629,9 +629,11 @@ def write_limit_events_md(
         lines.append("the FK residual to the achieved body position.")
         if display_names:
             lines.append("")
-            lines.append("**Config legend:**")
+            lines.append("The two configs in this benchmark are referred to by their")
+            lines.append("distinguishing parameters:")
+            lines.append("")
             for cfg in configs:
-                lines.append(f"- `{cfg}` → **{_disp(cfg)}**")
+                lines.append(f"- **{_disp(cfg)}**")
     lines.append("")
 
     # Overall summary

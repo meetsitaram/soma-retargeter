@@ -26,7 +26,7 @@ Quick-start:
     python scripts/bench_configs.py \\
         --ours soma_retargeter/configs/agibot_x2_ultra/soma_to_x2_ultra_retargeter_config.json \\
         --theirs /home/stickbot/Downloads/soma_to_x2_ultra_retargeter_config.json \\
-        --our-label v5_ours --their-label colleague \\
+        --our-label config_a --their-label config_b \\
         --max-frames 3000
 """
 
@@ -293,10 +293,14 @@ def _run_limit_events_analysis(args) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--ours", type=Path, default=DEFAULT_OURS, help="Our (v5) retargeter config JSON")
-    ap.add_argument("--theirs", type=Path, default=DEFAULT_THEIRS, help="Colleague's retargeter config JSON")
-    ap.add_argument("--our-label", type=str, default="v5_ours")
-    ap.add_argument("--their-label", type=str, default="colleague")
+    ap.add_argument("--ours", type=Path, default=DEFAULT_OURS, help="First retargeter config JSON (config A)")
+    ap.add_argument("--theirs", type=Path, default=DEFAULT_THEIRS, help="Second retargeter config JSON (config B)")
+    ap.add_argument("--our-label", type=str, default="config_a",
+                    help="Short identifier for the first config (used in JSON keys / on-disk render paths). "
+                         "Pass --display-name to give it a human-readable label in the docs.")
+    ap.add_argument("--their-label", type=str, default="config_b",
+                    help="Short identifier for the second config (used in JSON keys / on-disk render paths). "
+                         "Pass --display-name to give it a human-readable label in the docs.")
 
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Override output dir (default: scratch/bench_<ts>)")
@@ -328,7 +332,8 @@ def main() -> None:
     ap.add_argument("--limit-events-groups", type=str, default="wrist,elbow,shoulder",
                     help="Comma-separated joint groups to restrict side-by-side events to (default: wrist,elbow,shoulder). Pass empty string for all.")
     ap.add_argument("--display-name", action="append", default=None,
-                    help="Map a config key to a display label, repeatable: --display-name v5_ours=h=1.40 --display-name colleague=h=1.70+smooth")
+                    help="Map a config key to a human-readable label, repeatable: "
+                         "--display-name config_a=h=1.40 --display-name config_b=h=1.70+wrist_smooth")
     ap.add_argument("--no-human-row", action="store_true",
                     help="Skip the human BVH skeleton row in side-by-side renders")
     args = ap.parse_args()

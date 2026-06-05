@@ -5,11 +5,13 @@ Output dir: `/home/stickbot/Projects/GR00T-WholeBodyControl/agibot-x2-references
 ## TL;DR
 
 Comparing two SOMA → X2 Ultra retargeter configs on **49 clips** drawn
-from the bones-seed corpus:
+from the bones-seed corpus. The configs are labelled by their
+distinguishing parameters:
 
-- `h=1.40` (`v5_ours`) — our prior config: smaller scale, no wrist smoothing.
-- `h=1.70+wrist_smooth` (`colleague`) — colleague config: anatomical scale,
-  high hip rotational weight, wrist_pitch/roll smoothing.
+- **h=1.40** — `model_height=1.40`, low hip rotational weight, no wrist
+  smoothing.
+- **h=1.70+wrist_smooth** — `model_height=1.70`, high hip rotational
+  weight, wrist_pitch/roll smoothing.
 
 **`h=1.70+wrist_smooth` is the better config on every IK-failure metric we
 care about.** The single trade-off is increased ankle activity, which is
@@ -29,12 +31,12 @@ chart below).
 
 | failure mode (lower = better)                            | h=1.70+wrist_smooth | h=1.40 | winner |
 |---|---:|---:|---|
-| Slam (basin-hop, sudden jerk into limit)                 | **399** | 486 | colleague |
-| Pin  (workspace-exhaustion, stuck at limit)              | **178** | 302 | colleague |
-| Twist (palm-twist past natural human range, ≥ 80°)       | **38**  | 110 | colleague |
-| Severe twist (palm-twist ≥ 100°)                         | **3**   | 17  | colleague |
-| Wrist events total (slam + pin + twist)                  | **38**  | 474 | colleague |
-| Peak wrist-roll vel (deg/s)                              | **872** | 1386 | colleague |
+| Slam (basin-hop, sudden jerk into limit)                 | **399** | 486 | h=1.70+wrist_smooth |
+| Pin  (workspace-exhaustion, stuck at limit)              | **178** | 302 | h=1.70+wrist_smooth |
+| Twist (palm-twist past natural human range, ≥ 80°)       | **38**  | 110 | h=1.70+wrist_smooth |
+| Severe twist (palm-twist ≥ 100°)                         | **3**   | 17  | h=1.70+wrist_smooth |
+| Wrist events total (slam + pin + twist)                  | **38**  | 474 | h=1.70+wrist_smooth |
+| Peak wrist-roll vel (deg/s)                              | **872** | 1386 | h=1.70+wrist_smooth |
 
 The "wrist events total" row is the big one — `h=1.40` triggers wrist
 failures roughly **12×** as often as `h=1.70+wrist_smooth`, which matches
@@ -49,13 +51,15 @@ config for X2 Ultra. Detailed evidence and per-clip renders follow.
 
 Empirical comparison of two SOMA -> X2 Ultra retargeter configs:
 
-| internal key | descriptive label | summary |
-|---|---|---|
-| `v5_ours`     | **h=1.40**                | `model_height=1.40`, `Hips.r_weight=2`, `Hand.t/r=1.0/0.1`, *no* wrist smoothing — see `configs/v5_ours.json` |
-| `colleague`   | **h=1.70+wrist_smooth** | `model_height=1.70`, `Hips.r_weight=10`, `Hand.t/r=2.0/0.2`, wrist_pitch/roll smoothing at 0.1 — see `configs/colleague.json` |
+| config | summary |
+|---|---|
+| **h=1.40**              | `model_height=1.40`, `Hips.r_weight=2`, `Hand.t/r=1.0/0.1`, *no* wrist smoothing |
+| **h=1.70+wrist_smooth** | `model_height=1.70`, `Hips.r_weight=10`, `Hand.t/r=2.0/0.2`, wrist_pitch/roll smoothing at 0.1 |
 
-The internal keys appear in metric tables; the descriptive labels appear
-in `limit_events.md` and the side-by-side renders.
+Full config JSONs for both runs are staged under `configs/` in this bench
+dir. The short identifiers used inside `metrics.json` / `limit_events.json`
+and on-disk render directories are arbitrary bench-pipeline keys and do
+not reflect authorship.
 
 Same MJCF, same Newton-IK solver, same scaler — only the retargeter
 config JSON differs. The two configs in this run differ along:
@@ -411,8 +415,8 @@ without hardware changes or workspace-aware target adjustment.
 
 **Recommended:**
 
-1. **Promote the h=1.70+wrist_smooth config to `v6`.** Copy
-   `configs/colleague.json` to
+1. **Promote the h=1.70+wrist_smooth config to `v6`.** Copy the
+   `h=1.70+wrist_smooth` config from this bench dir's `configs/` folder to
    `soma_retargeter/configs/agibot_x2_ultra/soma_to_x2_ultra_retargeter_config.json`
    on the `retarget-eval-2026-06-04` branch and re-run the anchor
    clip (A021) plus 2-3 manipulation clips through the existing

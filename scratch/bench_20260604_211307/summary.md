@@ -2,17 +2,13 @@
 
 Corpus: **49 clips** across categories: dances, loco-manipulation, locowalk, standing-manipulation
 
-**Config legend** (descriptive labels for the two configs compared in this run):
+**Configs compared in this run** (labelled by their distinguishing
+parameters):
 
-| internal key | descriptive label | summary |
-|---|---|---|
-| `v5_ours`     | **h=1.40**                | `model_height=1.40`, `Hips.r_weight=2`, `Hand.t/r=1.0/0.1`, *no* wrist smoothing |
-| `colleague`   | **h=1.70+wrist_smooth** | `model_height=1.70`, `Hips.r_weight=10`, `Hand.t/r=2.0/0.2`, wrist_pitch/roll smoothing at 0.1 |
-
-All tables in this file (and in `limit_events.md` and `REPORT.md`) use the
-descriptive labels. The internal keys above only appear as a translation
-key when reading raw `metrics.json` or the `frames/<clip>__<internal_key>/`
-PNG paths.
+| config | summary |
+|---|---|
+| **h=1.40**              | `model_height=1.40`, `Hips.r_weight=2`, `Hand.t/r=1.0/0.1`, *no* wrist smoothing |
+| **h=1.70+wrist_smooth** | `model_height=1.70`, `Hips.r_weight=10`, `Hand.t/r=2.0/0.2`, wrist_pitch/roll smoothing at 0.1 |
 
 ## Visual summary
 

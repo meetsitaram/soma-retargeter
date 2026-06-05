@@ -33,9 +33,11 @@ so we skip rendering them). Each render is a 3-row strip:
 `peak-3 / peak / peak+3`. Red/green/blue axis tripods = the SOMA IK target pose; yellow lines = 
 the FK residual to the achieved body position.
 
-**Config legend:**
-- `colleague` → **h=1.70+wrist_smooth**
-- `v5_ours` → **h=1.40**
+The two configs in this benchmark are referred to by their
+distinguishing parameters:
+
+- **h=1.70+wrist_smooth**
+- **h=1.40**
 
 ## Overall event counts
 

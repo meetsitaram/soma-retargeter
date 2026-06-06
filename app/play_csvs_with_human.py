@@ -88,7 +88,14 @@ def _resolve_bvh_auto(csv_a: pathlib.Path) -> pathlib.Path:
     target = clip_stem + ".bvh"
     for entry in json.loads(corpus_json.read_text()):
         if entry.get("name") == target:
-            return pathlib.Path(entry["path"])
+            # Resolve relative paths against the corpus.json's directory so a
+            # shipped demo (e.g. demos/three_config_comparison/corpus.json with
+            # paths like "bvh/walk_forward_loop_001__A021.bvh") works on any
+            # checkout without rewriting the file.
+            p = pathlib.Path(entry["path"])
+            if not p.is_absolute():
+                p = (corpus_json.parent / p).resolve()
+            return p
     raise SystemExit(f"--bvh auto: '{target}' not found in {corpus_json}")
 
 

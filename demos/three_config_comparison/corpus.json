@@ -1,0 +1,20 @@
+[
+  {
+    "name": "walk_forward_loop_001__A021.bvh",
+    "category": "locowalk",
+    "path": "bvh/walk_forward_loop_001__A021.bvh",
+    "tier": "anchor"
+  },
+  {
+    "name": "dance_latino_chase_mambo_pivot_R_001__A313.bvh",
+    "category": "dances",
+    "path": "bvh/dance_latino_chase_mambo_pivot_R_001__A313.bvh",
+    "tier": "anchor"
+  },
+  {
+    "name": "body_check_004__A444.bvh",
+    "category": "locowalk",
+    "path": "bvh/body_check_004__A444.bvh",
+    "tier": "anchor"
+  }
+]

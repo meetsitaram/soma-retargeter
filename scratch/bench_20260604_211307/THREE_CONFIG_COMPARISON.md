@@ -4,6 +4,10 @@ Side-by-side playback of three SOMA → X2 Ultra retarget configurations
 against the source human BVH (skinned mesh) on three test clips. All CSVs
 are full-length (no `--max-frames` truncation).
 
+> A **self-contained runnable copy** of this demo (CSVs + BVHs + configs +
+> commands, no bench dir required) lives at
+> [`demos/three_config_comparison/`](../../demos/three_config_comparison/README.md).
+
 ## Configs
 
 | | `x2_shoulder_fix` *(commit [`601c105`](https://github.com/meetsitaram/soma-retargeter/commit/601c105e2924e63264963405197da302791e719d))* | `x2_uniform_h170_tuned` | `x2_chain_matched` |

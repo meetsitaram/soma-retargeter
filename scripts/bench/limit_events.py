@@ -621,16 +621,23 @@ def write_limit_events_md(
     lines.append("| `*_wrist_roll_joint`  | −90° / +41°  | palm FORWARD/BACK BEND (flexion / extension) |")
     if sxs_pngs_by_event_id:
         lines.append("")
+        n_cfg = len(configs)
+        n_rows = n_cfg + 1  # +1 for human BVH row
         lines.append("Side-by-side renders shown below were generated with `--limit-events-groups wrist,elbow,shoulder` ")
         lines.append("(top events on those groups only — leg/ankle slams are mostly foot-strike events, not IK failures, ")
-        lines.append("so we skip rendering them). Each render is a 3-row strip: ")
-        lines.append("**(top) human BVH stick figure**, **(middle/bottom) the two retargeter configs**, with columns ")
+        lines.append("so we skip rendering them). Each render is a "
+                     f"{n_rows}-row strip: ")
+        lines.append("**(top) human BVH skinned mesh**, then one row per retargeter config, with columns ")
         lines.append("`peak-3 / peak / peak+3`. Red/green/blue axis tripods = the SOMA IK target pose; yellow lines = ")
         lines.append("the FK residual to the achieved body position.")
         if display_names:
             lines.append("")
-            lines.append("The two configs in this benchmark are referred to by their")
-            lines.append("distinguishing parameters:")
+            if n_cfg == 2:
+                lines.append("The two configs in this benchmark are referred to by their")
+                lines.append("distinguishing parameters:")
+            else:
+                lines.append(f"The {n_cfg} configs in this benchmark are referred to by their")
+                lines.append("distinguishing parameters:")
             lines.append("")
             for cfg in configs:
                 lines.append(f"- **{_disp(cfg)}**")

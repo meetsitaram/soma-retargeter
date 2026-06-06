@@ -1,6 +1,6 @@
 """Aggregate metrics computed per (clip, config).
 
-Seven aggregate metrics:
+Aggregate metrics:
   1. saturation_pct      — mean % frames within `near_deg` of either limit.
                           Reported per group (hip/wrist/shoulder/elbow/...) and overall.
   2. fk_pos_residual_m   — mean Euclidean error between IK target position and
@@ -14,6 +14,26 @@ Seven aggregate metrics:
                           Captures the "twisting" symptom directly.
   7. shoulder_yaw_mean_abs_deg — mean abs of shoulder yaw joints (deg). High
                                  values indicate IK is compensating with yaw.
+
+Foot-floor contact metrics (added 2026-06-05 to capture floating / penetration):
+  8. foot_floor_mean_Z_m — mean over the clip of min(L_ankle_Z, R_ankle_Z).
+                          Lower stance-foot ankle on average = more grounded.
+  9. foot_floor_min_Z_m  — min over the clip of min(L_ankle_Z, R_ankle_Z).
+                          Worst-case foot below the floor (negative if penetrating
+                          past `rest_sole_Z`).
+ 10. floating_pct         — % frames where min(L_ankle_Z, R_ankle_Z) exceeds
+                            `rest_sole_Z + 5 mm`. Both feet visibly off the floor.
+ 11. penetration_pct      — % frames where min(L_ankle_Z, R_ankle_Z) is below
+                            `rest_sole_Z - 5 mm`. Visually hidden by the floor
+                            mesh in MuJoCo viewers but mechanically impossible.
+ 12. stance_drift_m       — RMS deviation of the lower ankle from `rest_sole_Z`
+                            during stance frames (= frames where the lower
+                            ankle is within ±2 cm of rest sole). Measures
+                            quality of foot planting, not just count.
+ 13. stride_realism_ratio — peak L/R ankle world-X excursion divided by the
+                            robot's hip-to-ankle length. Natural human strides
+                            sit in [0.4, 0.85]; values > 1.0 imply foot targets
+                            outside the robot's reachable leg geometry.
 """
 
 from __future__ import annotations
@@ -76,6 +96,18 @@ class ClipMetrics:
     # Shoulder yaw absolute mean (deg) — captures arm twist compensation
     shoulder_yaw_mean_abs_deg: float = 0.0
     shoulder_yaw_max_abs_deg: float = 0.0
+
+    # Foot-floor contact (m, percentages). `rest_sole_Z` is the ankle-roll-link
+    # world Z at the MJCF rest pose (= 0.0781 m for X2 Ultra) and represents
+    # "sole resting on the floor". All foot-floor metrics are normalised
+    # against that reference.
+    rest_sole_Z_m: float = 0.0
+    foot_floor_mean_Z_m: float = 0.0
+    foot_floor_min_Z_m: float = 0.0
+    floating_pct: float = 0.0
+    penetration_pct: float = 0.0
+    stance_drift_m: float = 0.0
+    stride_realism_ratio: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -172,13 +204,27 @@ def compute_clip_metrics(
     sh_yaw_mean_abs = float(0.5 * (np.abs(l_sh_yaw).mean() + np.abs(r_sh_yaw).mean()))
     sh_yaw_max_abs = float(max(np.abs(l_sh_yaw).max(), np.abs(r_sh_yaw).max()))
 
-    # 2 + 4) FK and hand-vs-pelvis distances. Both need the MuJoCo data driver.
+    # 2 + 4 + 8..13) FK-based metrics: hand-vs-pelvis distances, FK residual,
+    # and the new foot-floor / stride contact metrics. All share one
+    # MuJoCo per-frame loop so adding the ankle queries is essentially free.
     import mujoco  # local import to avoid penalising bench startup
     model, data = kinematics.load_x2_mj_model()
     csv_to_qpos = kinematics.build_csv_to_qpos_map(model)
     pelvis_id = kinematics.body_name_to_id(model, "pelvis")
     lwrist_id = kinematics.body_name_to_id(model, "left_wrist_roll_link")
     rwrist_id = kinematics.body_name_to_id(model, "right_wrist_roll_link")
+    lankle_id = kinematics.body_name_to_id(model, "left_ankle_roll_link")
+    rankle_id = kinematics.body_name_to_id(model, "right_ankle_roll_link")
+    lhip_id = kinematics.body_name_to_id(model, "left_hip_roll_link")
+
+    # Establish the rest-pose anchor used by every foot-floor metric:
+    # at the MJCF zero pose, the ankle_roll_link sits `sole offset` above
+    # the floor (= 0.0781 m for X2 Ultra). That's the "sole on the ground"
+    # reference. Computed dynamically so future robots Just Work.
+    mujoco.mj_forward(model, data)
+    rest_sole_Z = float(data.xpos[lankle_id, 2])
+    # Hip-to-ankle distance at rest = robot leg length for stride-realism.
+    robot_leg_len = float(np.linalg.norm(data.xpos[lhip_id] - data.xpos[lankle_id]))
 
     # Compute IK targets for the BVH so we have positional ground truth.
     targets, eff_order, cfg = kinematics.compute_targets(
@@ -212,18 +258,28 @@ def compute_clip_metrics(
     joint_lo_hi_deg = np.array([JOINT_LIMITS_DEG[j] for j in JOINT_NAMES])  # (31,2)
 
     pelvis_z_arr = np.zeros(num_frames, dtype=np.float64)
+    # Per-frame pelvis + ankle positions (world frame) drive the foot-floor
+    # and stride-realism metrics.
+    pelvis_pos_arr = np.zeros((num_frames, 3), dtype=np.float64)
+    lankle_pos_arr = np.zeros((num_frames, 3), dtype=np.float64)
+    rankle_pos_arr = np.zeros((num_frames, 3), dtype=np.float64)
 
     for f in range(num_frames):
         row = csv_data[f]
         kinematics.apply_csv_row(model, data, row, csv_to_qpos)
         pelvis_pos = np.array(data.xpos[pelvis_id], dtype=np.float64)
         pelvis_z_arr[f] = float(pelvis_pos[2])
+        pelvis_pos_arr[f] = pelvis_pos
 
         # Hand distances
         lwrist_pos = np.array(data.xpos[lwrist_id], dtype=np.float64)
         rwrist_pos = np.array(data.xpos[rwrist_id], dtype=np.float64)
         left_hand_dist[f] = float(np.linalg.norm(lwrist_pos - pelvis_pos))
         right_hand_dist[f] = float(np.linalg.norm(rwrist_pos - pelvis_pos))
+
+        # Ankle world positions (for foot-floor + stride metrics)
+        lankle_pos_arr[f] = data.xpos[lankle_id]
+        rankle_pos_arr[f] = data.xpos[rankle_id]
 
         # Per-effector residual (only if target frame exists)
         if f < n_targets:
@@ -258,6 +314,48 @@ def compute_clip_metrics(
     per_eff_residual_mean = {n: (float(np.mean(per_eff_dists[n])) if per_eff_dists[n] else 0.0)
                              for n in effs_for_residual}
 
+    # ----- Foot-floor metrics (8..13) -----
+    # The stance foot per frame is whichever ankle is lower (closer to floor).
+    lZ = lankle_pos_arr[:, 2]
+    rZ = rankle_pos_arr[:, 2]
+    stance_Z = np.minimum(lZ, rZ)
+    # Float / penetrate are measured against a ±5 mm band around rest_sole_Z.
+    band = 0.005  # 5 mm tolerance for "feet effectively on the floor"
+    floating_mask = stance_Z > (rest_sole_Z + band)
+    penetration_mask = stance_Z < (rest_sole_Z - band)
+    foot_floor_mean_Z = float(stance_Z.mean())
+    foot_floor_min_Z = float(stance_Z.min())
+    floating_pct_v = float(floating_mask.mean()) * 100.0
+    penetration_pct_v = float(penetration_mask.mean()) * 100.0
+    # Stance phase = ankle close to floor on either side, capped at ±2 cm of
+    # rest sole. RMS deviation captures how well planted the foot is.
+    stance_window = 0.02
+    l_stance = np.abs(lZ - rest_sole_Z) <= stance_window
+    r_stance = np.abs(rZ - rest_sole_Z) <= stance_window
+    l_dev = lZ[l_stance] - rest_sole_Z if l_stance.any() else np.array([])
+    r_dev = rZ[r_stance] - rest_sole_Z if r_stance.any() else np.array([])
+    if len(l_dev) + len(r_dev) > 0:
+        combined = np.concatenate([l_dev, r_dev])
+        stance_drift = float(np.sqrt(np.mean(combined * combined)))
+    else:
+        stance_drift = 0.0
+    # Stride realism: per-foot horizontal Euclidean displacement relative to
+    # pelvis, computed as max(|foot_xy - pelvis_xy|) - min(...). Subtracting
+    # the pelvis path removes global travel; using the XY norm makes us
+    # invariant to which world-axis the clip walks along (X vs Y). Divided
+    # by robot leg length to give a unit-less ratio.
+    #
+    # Natural human walking strides sit around 0.4-0.85; values > 1.0 indicate
+    # foot targets outside the robot's reachable leg geometry.
+    l_xy = lankle_pos_arr[:, :2] - pelvis_pos_arr[:, :2]
+    r_xy = rankle_pos_arr[:, :2] - pelvis_pos_arr[:, :2]
+    l_dist = np.linalg.norm(l_xy, axis=1)
+    r_dist = np.linalg.norm(r_xy, axis=1)
+    l_span = float(l_dist.max() - l_dist.min())
+    r_span = float(r_dist.max() - r_dist.min())
+    peak_stride = max(l_span, r_span)
+    stride_realism_v = float(peak_stride / max(robot_leg_len, 1e-6))
+
     m = ClipMetrics(
         clip=clip_name,
         config=config_name,
@@ -290,6 +388,14 @@ def compute_clip_metrics(
 
         shoulder_yaw_mean_abs_deg=sh_yaw_mean_abs,
         shoulder_yaw_max_abs_deg=sh_yaw_max_abs,
+
+        rest_sole_Z_m=rest_sole_Z,
+        foot_floor_mean_Z_m=foot_floor_mean_Z,
+        foot_floor_min_Z_m=foot_floor_min_Z,
+        floating_pct=floating_pct_v,
+        penetration_pct=penetration_pct_v,
+        stance_drift_m=stance_drift,
+        stride_realism_ratio=stride_realism_v,
     )
 
     per_frame = dict(
@@ -299,6 +405,11 @@ def compute_clip_metrics(
         fk_residual=fk_residual_per_frame,
         saturated_dof_count=saturated_dof_count,
         wrist_ang_vel_dps=wrist_ang_vel_dps,
+        # Ankle/pelvis trajectories make downstream foot-floor visualisations
+        # and the side-by-side renderer cheap (no need to redo FK).
+        left_ankle_pos=lankle_pos_arr,
+        right_ankle_pos=rankle_pos_arr,
+        pelvis_pos=pelvis_pos_arr,
     )
 
     return m, per_frame

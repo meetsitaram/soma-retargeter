@@ -1,0 +1,418 @@
+{
+  "mjcf": "soma_retargeter/robot_assets/agibot_x2_ultra/x2_ultra.xml",
+  "bvh": "soma_retargeter/configs/soma/soma_zero_frame0.bvh",
+  "src_scaler_config": "soma_retargeter/configs/agibot_x2_ultra/soma_to_x2_ultra_scaler_config.json",
+  "human_height_assumption": 1.8,
+  "mapping": {
+    "Hips": [],
+    "Chest": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link"
+    ],
+    "Neck1": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "head_yaw_link"
+    ],
+    "LeftLeg": [
+      "left_hip_pitch_link"
+    ],
+    "LeftShin": [
+      "left_hip_pitch_link",
+      "left_hip_roll_link",
+      "left_hip_yaw_link",
+      "left_knee_link"
+    ],
+    "LeftFoot": [
+      "left_hip_pitch_link",
+      "left_hip_roll_link",
+      "left_hip_yaw_link",
+      "left_knee_link",
+      "left_ankle_pitch_link",
+      "left_ankle_roll_link"
+    ],
+    "LeftToe": [
+      "left_hip_pitch_link",
+      "left_hip_roll_link",
+      "left_hip_yaw_link",
+      "left_knee_link",
+      "left_ankle_pitch_link",
+      "left_ankle_roll_link"
+    ],
+    "LeftToeBase": [
+      "left_hip_pitch_link",
+      "left_hip_roll_link",
+      "left_hip_yaw_link",
+      "left_knee_link",
+      "left_ankle_pitch_link",
+      "left_ankle_roll_link"
+    ],
+    "RightLeg": [
+      "right_hip_pitch_link"
+    ],
+    "RightShin": [
+      "right_hip_pitch_link",
+      "right_hip_roll_link",
+      "right_hip_yaw_link",
+      "right_knee_link"
+    ],
+    "RightFoot": [
+      "right_hip_pitch_link",
+      "right_hip_roll_link",
+      "right_hip_yaw_link",
+      "right_knee_link",
+      "right_ankle_pitch_link",
+      "right_ankle_roll_link"
+    ],
+    "RightToe": [
+      "right_hip_pitch_link",
+      "right_hip_roll_link",
+      "right_hip_yaw_link",
+      "right_knee_link",
+      "right_ankle_pitch_link",
+      "right_ankle_roll_link"
+    ],
+    "RightToeBase": [
+      "right_hip_pitch_link",
+      "right_hip_roll_link",
+      "right_hip_yaw_link",
+      "right_knee_link",
+      "right_ankle_pitch_link",
+      "right_ankle_roll_link"
+    ],
+    "LeftArm": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "left_shoulder_pitch_link"
+    ],
+    "LeftForeArm": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "left_shoulder_pitch_link",
+      "left_shoulder_roll_link",
+      "left_shoulder_yaw_link",
+      "left_elbow_link"
+    ],
+    "LeftHand": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "left_shoulder_pitch_link",
+      "left_shoulder_roll_link",
+      "left_shoulder_yaw_link",
+      "left_elbow_link",
+      "left_wrist_yaw_link",
+      "left_wrist_pitch_link",
+      "left_wrist_roll_link"
+    ],
+    "RightArm": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "right_shoulder_pitch_link"
+    ],
+    "RightForeArm": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "right_shoulder_pitch_link",
+      "right_shoulder_roll_link",
+      "right_shoulder_yaw_link",
+      "right_elbow_link"
+    ],
+    "RightHand": [
+      "waist_yaw_link",
+      "waist_pitch_link",
+      "torso_link",
+      "right_shoulder_pitch_link",
+      "right_shoulder_roll_link",
+      "right_shoulder_yaw_link",
+      "right_elbow_link",
+      "right_wrist_yaw_link",
+      "right_wrist_pitch_link",
+      "right_wrist_roll_link"
+    ]
+  },
+  "audit": [
+    {
+      "joint": "Hips",
+      "robot_chain": [
+        "pelvis (world Z)"
+      ],
+      "bvh_chain": "Hips bind-pose world Y",
+      "robot_len": 0.68,
+      "bvh_len": 1.0099999904632568,
+      "scale": 0.6732673330898788,
+      "note": "vertical height: robot_pelvis_Z / BVH_Hips_world_Y_bind"
+    },
+    {
+      "joint": "Chest",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link"
+      ],
+      "bvh_chain": "Hips\u2192Chest",
+      "robot_len": 0.1550706,
+      "bvh_len": 0.19600085572639797,
+      "scale": 0.791173076389353,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "Neck1",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "head_yaw_link"
+      ],
+      "bvh_chain": "Hips\u2192Neck1",
+      "robot_len": 0.46458019307451665,
+      "bvh_len": 0.459508549732367,
+      "scale": 1.011037103325071,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftLeg",
+      "robot_chain": [
+        "left_hip_pitch_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftLeg",
+      "robot_len": 0.07135,
+      "bvh_len": 0.1317872456448059,
+      "scale": 0.541402922952826,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftShin",
+      "robot_chain": [
+        "left_hip_pitch_link",
+        "left_hip_roll_link",
+        "left_hip_yaw_link",
+        "left_knee_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftShin",
+      "robot_len": 0.4571640204699833,
+      "bvh_len": 0.564790254010437,
+      "scale": 0.8094403492690848,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftFoot",
+      "robot_chain": [
+        "left_hip_pitch_link",
+        "left_hip_roll_link",
+        "left_hip_yaw_link",
+        "left_knee_link",
+        "left_ankle_pitch_link",
+        "left_ankle_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftFoot",
+      "robot_len": 0.7410912973771749,
+      "bvh_len": 0.989030783547638,
+      "scale": 0.7493106480658691,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftToeBase",
+      "robot_chain": [
+        "left_hip_pitch_link",
+        "left_hip_roll_link",
+        "left_hip_yaw_link",
+        "left_knee_link",
+        "left_ankle_pitch_link",
+        "left_ankle_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftToeBase",
+      "robot_len": 0.7410912973771749,
+      "bvh_len": 1.1303591034548264,
+      "scale": 0.6556246551313698,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightLeg",
+      "robot_chain": [
+        "right_hip_pitch_link"
+      ],
+      "bvh_chain": "Hips\u2192RightLeg",
+      "robot_len": 0.07135,
+      "bvh_len": 0.13174627689343968,
+      "scale": 0.5415712814238387,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightShin",
+      "robot_chain": [
+        "right_hip_pitch_link",
+        "right_hip_roll_link",
+        "right_hip_yaw_link",
+        "right_knee_link"
+      ],
+      "bvh_chain": "Hips\u2192RightShin",
+      "robot_len": 0.4571602963683078,
+      "bvh_len": 0.564749911107841,
+      "scale": 0.8094915773807203,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightFoot",
+      "robot_chain": [
+        "right_hip_pitch_link",
+        "right_hip_roll_link",
+        "right_hip_yaw_link",
+        "right_knee_link",
+        "right_ankle_pitch_link",
+        "right_ankle_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192RightFoot",
+      "robot_len": 0.7410875732754995,
+      "bvh_len": 0.9889901724241404,
+      "scale": 0.7493376516158899,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightToeBase",
+      "robot_chain": [
+        "right_hip_pitch_link",
+        "right_hip_roll_link",
+        "right_hip_yaw_link",
+        "right_knee_link",
+        "right_ankle_pitch_link",
+        "right_ankle_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192RightToeBase",
+      "robot_len": 0.7410875732754995,
+      "bvh_len": 1.1303184029243616,
+      "scale": 0.6556449681418586,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftArm",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "left_shoulder_pitch_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftArm",
+      "robot_len": 0.43589579970769166,
+      "bvh_len": 0.5933253740330933,
+      "scale": 0.7346656974144159,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftForeArm",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "left_shoulder_pitch_link",
+        "left_shoulder_roll_link",
+        "left_shoulder_yaw_link",
+        "left_elbow_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftForeArm",
+      "robot_len": 0.6907228845429972,
+      "bvh_len": 0.8824853574296235,
+      "scale": 0.7827018077159212,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "LeftHand",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "left_shoulder_pitch_link",
+        "left_shoulder_roll_link",
+        "left_shoulder_yaw_link",
+        "left_elbow_link",
+        "left_wrist_yaw_link",
+        "left_wrist_pitch_link",
+        "left_wrist_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192LeftHand",
+      "robot_len": 0.8940279668791665,
+      "bvh_len": 1.15274736037457,
+      "scale": 0.7755627968548668,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightArm",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "right_shoulder_pitch_link"
+      ],
+      "bvh_chain": "Hips\u2192RightArm",
+      "robot_len": 0.4358953123560952,
+      "bvh_len": 0.593328657682372,
+      "scale": 0.7346608101802561,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightForeArm",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "right_shoulder_pitch_link",
+        "right_shoulder_roll_link",
+        "right_shoulder_yaw_link",
+        "right_elbow_link"
+      ],
+      "bvh_chain": "Hips\u2192RightForeArm",
+      "robot_len": 0.6907222455489147,
+      "bvh_len": 0.8824797599868308,
+      "scale": 0.782706048192224,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "RightHand",
+      "robot_chain": [
+        "waist_yaw_link",
+        "waist_pitch_link",
+        "torso_link",
+        "right_shoulder_pitch_link",
+        "right_shoulder_roll_link",
+        "right_shoulder_yaw_link",
+        "right_elbow_link",
+        "right_wrist_yaw_link",
+        "right_wrist_pitch_link",
+        "right_wrist_roll_link"
+      ],
+      "bvh_chain": "Hips\u2192RightHand",
+      "robot_len": 0.8940255424068196,
+      "bvh_len": 1.152741643722488,
+      "scale": 0.7755645397868944,
+      "note": "sum-of-bones ratio"
+    },
+    {
+      "joint": "Left_foot_floor_offset",
+      "robot_chain": [
+        "left_ankle_roll_link.world_Z"
+      ],
+      "bvh_chain": "H*(Hs-Fs); H=1.010, Hs=0.6733, Fs=0.7493",
+      "robot_len": 0.07805000000000001,
+      "bvh_len": -0.0768037474005446,
+      "scale": 0.1548537474005446,
+      "note": "world_offsets[*Foot/Toe*] z-lift"
+    },
+    {
+      "joint": "Right_foot_floor_offset",
+      "robot_chain": [
+        "right_ankle_roll_link.world_Z"
+      ],
+      "bvh_chain": "H*(Hs-Fs); H=1.010, Hs=0.6733, Fs=0.7493",
+      "robot_len": 0.07805000000000001,
+      "bvh_len": -0.07683102098580812,
+      "scale": 0.15488102098580814,
+      "note": "world_offsets[*Foot/Toe*] z-lift"
+    }
+  ]
+}

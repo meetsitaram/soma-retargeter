@@ -68,19 +68,32 @@ def write_summary_md(
     configs: list[str],
     corpus_entries: list[dict],
     section_counts: Dict[tuple[str, str], int],
+    display_names: Dict[str, str] | None = None,
 ) -> None:
-    """Build the aggregate metric table."""
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    """Build the aggregate metric table.
 
-    lines: List[str] = ["# A/B benchmark — aggregate metrics", ""]
+    ``display_names`` maps the internal config key (e.g. ``x2_uniform_h170_tuned``)
+    to a user-facing descriptive label (e.g. ``h=1.70+wrist_smooth``). When
+    provided, all column headers, "better" markers, and per-clip table
+    sub-columns use the descriptive label instead of the internal key.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    display_names = display_names or {}
+    def disp(c: str) -> str:
+        return display_names.get(c, c)
+
+    n_cfg = len(configs)
+    bench_kind = "A/B" if n_cfg == 2 else f"{n_cfg}-way"
+
+    lines: List[str] = [f"# {bench_kind} benchmark — aggregate metrics", ""]
     lines.append(f"Corpus: **{len(corpus_entries)} clips** across categories: " +
                  ", ".join(sorted(set(e["category"] for e in corpus_entries))))
-    lines.append(f"Configs evaluated: {', '.join(configs)}")
+    lines.append(f"Configs evaluated: {', '.join(disp(c) for c in configs)}")
     lines.append("")
 
     lines.append("## Headline numbers (aggregate over the full corpus)")
     lines.append("")
-    lines.append("| metric | " + " | ".join(configs) + " | better |")
+    lines.append("| metric | " + " | ".join(disp(c) for c in configs) + " | better |")
     lines.append("|---|" + "|".join(["---:"] * len(configs)) + "|:---|")
 
     def _row(label: str, key: str, agg: str = "mean", lower_is_better: bool = True, scale: float = 1.0, fmt: str = "{:.3f}") -> None:
@@ -89,16 +102,26 @@ def write_summary_md(
             m, med, mx = _aggregate(per_clip, cfg, key)
             v = {"mean": m, "median": med, "max": mx}[agg] * scale
             vals.append(v)
-        # which one is better
-        if len(configs) == 2:
-            if abs(vals[0] - vals[1]) < 1e-9:
-                marker = "tie"
-            elif (vals[0] < vals[1]) == lower_is_better:
-                marker = f"**{configs[0]}** ({abs(vals[0] - vals[1]) / max(abs(vals[1]), 1e-9) * 100:.0f}% better)"
-            else:
-                marker = f"**{configs[1]}** ({abs(vals[0] - vals[1]) / max(abs(vals[0]), 1e-9) * 100:.0f}% better)"
+        # Identify which config is "best" (min for lower=better, max otherwise).
+        # For 2 configs we also emit a percentage delta against the runner-up;
+        # for N>2 we only highlight the winner and the delta vs the worst.
+        all_equal = all(abs(v - vals[0]) < 1e-9 for v in vals)
+        if all_equal:
+            marker = "tie"
+        elif len(configs) == 2:
+            best_idx, other_idx = (0, 1) if (vals[0] < vals[1]) == lower_is_better else (1, 0)
+            denom = max(abs(vals[other_idx]), 1e-9)
+            marker = f"**{disp(configs[best_idx])}** ({abs(vals[best_idx] - vals[other_idx]) / denom * 100:.0f}% better)"
         else:
-            marker = ""
+            if lower_is_better:
+                best_idx = int(min(range(len(vals)), key=lambda i: vals[i]))
+                worst_v = max(vals)
+            else:
+                best_idx = int(max(range(len(vals)), key=lambda i: vals[i]))
+                worst_v = min(vals)
+            denom = max(abs(worst_v), 1e-9)
+            spread = abs(vals[best_idx] - worst_v) / denom * 100
+            marker = f"**{disp(configs[best_idx])}** ({spread:.0f}% vs worst)"
         formatted = " | ".join(fmt.format(v) for v in vals)
         lines.append(f"| {label} ({agg}) | {formatted} | {marker} |")
 
@@ -113,11 +136,21 @@ def write_summary_md(
     _row("R hand-pelvis dist (m)", "right_hand_pelvis_dist_m_mean", lower_is_better=False, fmt="{:.3f}")
     _row("Root XY travel (m)", "root_travel_m", lower_is_better=False, fmt="{:.2f}")
 
+    # Foot-floor contact: floating + penetration as core diagnostics
+    # for the per-chain calibration story. `lower=better` for both since we
+    # want the stance foot to live at rest_sole_Z, not above (floating) or
+    # below (penetrating) the floor plane.
+    _row("Floating % (foot off floor)",     "floating_pct",        lower_is_better=True, fmt="{:.1f}")
+    _row("Penetration % (foot below floor)", "penetration_pct",     lower_is_better=True, fmt="{:.1f}")
+    _row("Stance drift (m, RMS)",           "stance_drift_m",       lower_is_better=True, fmt="{:.4f}")
+    _row("Foot floor min Z (m, near 0=best)", "foot_floor_min_Z_m", lower_is_better=True, fmt="{:.3f}")
+    _row("Stride/leg-length ratio (0.4-0.85=natural)", "stride_realism_ratio", lower_is_better=True, fmt="{:.3f}")
+
     # IK failure section counts
     lines.append("")
     lines.append("## IK failure section count (lower=better)")
     lines.append("")
-    lines.append("| | " + " | ".join(configs) + " |")
+    lines.append("| | " + " | ".join(disp(c) for c in configs) + " |")
     lines.append("|---|" + "|".join(["---:"] * len(configs)) + "|")
     total_sections = {cfg: 0 for cfg in configs}
     for (clip, cfg), c in section_counts.items():
@@ -131,7 +164,7 @@ def write_summary_md(
     lines.append("## Saturation % by joint group (lower=better)")
     lines.append("")
     groups = ["hip", "knee", "ankle", "waist", "shoulder", "elbow", "wrist", "head"]
-    lines.append("| group | " + " | ".join(configs) + " |")
+    lines.append("| group | " + " | ".join(disp(c) for c in configs) + " |")
     lines.append("|---|" + "|".join(["---:"] * len(configs)) + "|")
     for g in groups:
         row_vals = []
@@ -139,13 +172,47 @@ def write_summary_md(
             row_vals.append(_aggregate_group(per_clip, cfg, "saturation_pct", g))
         lines.append(f"| {g} | " + " | ".join(f"{v:.2f}" for v in row_vals) + " |")
 
+    # Foot-floor contact — dedicated per-clip table.
+    # The floating/penetration figures are the headline numbers, but the
+    # per-clip breakdown is essential when reasoning about per-category
+    # behaviour (locomotion vs manipulation vs dance).
+    lines.append("")
+    lines.append("## Foot-floor contact (per-clip)")
+    lines.append("")
+    lines.append("`rest_sole_Z` is the ankle_roll_link world Z at the MJCF rest pose")
+    lines.append("(~0.078 m for X2 Ultra). The stance foot (lower of L/R ankle) is")
+    lines.append("expected to sit within ±5 mm of that value. **Floating %** counts")
+    lines.append("frames where the stance foot is above the rest sole by more than")
+    lines.append("5 mm; **Penetration %** counts frames where the stance foot is more")
+    lines.append("than 5 mm below the rest sole (mechanically impossible, visually")
+    lines.append("clipped by the floor mesh).")
+    lines.append("")
+    headers = ["clip", "category"]
+    for cfg in configs:
+        headers += [f"{disp(cfg)}.float%", f"{disp(cfg)}.pen%", f"{disp(cfg)}.minZ_m"]
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("|" + "|".join(["---" if i < 2 else "---:" for i in range(len(headers))]) + "|")
+    by_name = {e["name"]: e for e in corpus_entries}
+    for clip_name in sorted(per_clip.keys(), key=lambda n: (
+        by_name.get(n, {}).get("category", ""), n,
+    )):
+        row = [clip_name, by_name.get(clip_name, {}).get("category", "?")]
+        for cfg in configs:
+            cm = per_clip[clip_name].get(cfg, {})
+            row += [
+                f"{cm.get('floating_pct', 0.0):.1f}",
+                f"{cm.get('penetration_pct', 0.0):.1f}",
+                f"{cm.get('foot_floor_min_Z_m', 0.0):.3f}",
+            ]
+        lines.append("| " + " | ".join(row) + " |")
+
     # Per-clip side-by-side table (FK residual + saturation overall)
     lines.append("")
     lines.append("## Per-clip headline metrics")
     lines.append("")
     headers = ["clip", "tier", "category", "frames"]
     for cfg in configs:
-        headers += [f"{cfg}.sat%", f"{cfg}.fkres_m", f"{cfg}.shYaw"]
+        headers += [f"{disp(cfg)}.sat%", f"{disp(cfg)}.fkres_m", f"{disp(cfg)}.shYaw"]
     lines.append("| " + " | ".join(headers) + " |")
     lines.append("|" + "|".join(["---" if i < 4 else "---:" for i in range(len(headers))]) + "|")
     by_name = {e["name"]: e for e in corpus_entries}
@@ -232,6 +299,7 @@ def write_report_md_skeleton(
     section_counts: Dict[tuple[str, str], int],
     section_total: Dict[str, int],
     runtime_summary: dict,
+    display_names: Dict[str, str] | None = None,
 ) -> None:
     """Generate a comprehensive REPORT.md whose data sections are pre-filled.
 
@@ -239,6 +307,9 @@ def write_report_md_skeleton(
     the analyst hand-edits after eyeballing the rendered PNGs.
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    display_names = display_names or {}
+    def disp(c: str) -> str:
+        return display_names.get(c, c)
 
     cats: dict[str, int] = {}
     tiers: dict[str, int] = {}
@@ -247,19 +318,25 @@ def write_report_md_skeleton(
         tiers[e["tier"]] = tiers.get(e["tier"], 0) + 1
 
     lines: list[str] = []
-    lines.append("# Retargeter config A/B benchmark — REPORT")
+    n_cfg = len(configs)
+    suffix = "A/B" if n_cfg == 2 else f"{n_cfg}-way"
+    lines.append(f"# Retargeter config {suffix} benchmark — REPORT")
     lines.append("")
     lines.append(f"Output dir: `{out_dir}`")
     lines.append("")
     lines.append("## 1. Overview")
     lines.append("")
-    lines.append("Empirical comparison of two SOMA -> X2 Ultra retargeter configs:")
+    num_word = {2: "two", 3: "three", 4: "four", 5: "five"}.get(n_cfg, str(n_cfg))
+    lines.append(f"Empirical comparison of {num_word} SOMA -> X2 Ultra retargeter configs:")
     lines.append("")
     for cfg in configs:
-        lines.append(f"- `{cfg}` — see `configs/{cfg}.json`")
+        if display_names.get(cfg) and display_names[cfg] != cfg:
+            lines.append(f"- `{cfg}` — see `configs/{cfg}.json` (display label `{display_names[cfg]}`)")
+        else:
+            lines.append(f"- `{cfg}` — see `configs/{cfg}.json`")
     lines.append("")
     lines.append("Same MJCF, same Newton-IK solver, same scaler — only the retargeter")
-    lines.append("config JSON differs. The two configs in this run differ along:")
+    lines.append(f"config JSON differs. The {num_word} configs in this run differ along:")
     lines.append("")
     lines.append("- `model_height` (global SOMA->robot scale)")
     lines.append("- `Hips.r_weight` (rotational IK weight on pelvis)")
@@ -295,7 +372,7 @@ def write_report_md_skeleton(
 
     lines.append("### 2.2 Metrics")
     lines.append("")
-    lines.append("Seven aggregate metrics computed per (clip, config):")
+    lines.append("Aggregate metrics computed per (clip, config):")
     lines.append("")
     lines.append("1. **Saturation %** — frames within 5° of any hardware joint limit, reported")
     lines.append("   overall and broken down by joint group (hip/wrist/shoulder/...).")
@@ -312,6 +389,16 @@ def write_report_md_skeleton(
     lines.append("7. **Shoulder yaw |mean| (deg)** — mean absolute value of shoulder yaw")
     lines.append("   joints. High values flag IK compensating with shoulder yaw for")
     lines.append("   workspace limits.")
+    lines.append("8. **Foot-floor contact** — `floating_pct` and `penetration_pct` against")
+    lines.append("   the MJCF rest-pose ankle Z (~0.078 m for X2 Ultra). Captures the")
+    lines.append("   visible 'feet hovering above the floor' or 'feet clipping through")
+    lines.append("   the floor' artefacts directly. `stance_drift_m` is the RMS deviation")
+    lines.append("   of the lower ankle from the rest sole during stance frames.")
+    lines.append("9. **Stride realism ratio** — peak per-foot X excursion relative to")
+    lines.append("   pelvis, divided by robot leg length. Natural human strides sit in")
+    lines.append("   [0.4, 0.85]; values > 1.0 indicate foot targets outside the robot's")
+    lines.append("   leg geometry (a common consequence of human-anchored IK targets on")
+    lines.append("   a short-legged robot).")
     lines.append("")
 
     lines.append("### 2.3 Per-frame flagging and IK failure sections")
@@ -343,26 +430,31 @@ def write_report_md_skeleton(
         fk_mean, _, _ = _aggregate(per_clip, cfg, "fk_pos_residual_m_mean")
         sh_mean, _, _ = _aggregate(per_clip, cfg, "shoulder_yaw_mean_abs_deg")
         hipw, _, _ = _aggregate(per_clip, cfg, "hip_yaw_wobble_dps")
+        float_mean, _, _ = _aggregate(per_clip, cfg, "floating_pct")
+        pen_mean, _, _ = _aggregate(per_clip, cfg, "penetration_pct")
+        stride_mean, _, _ = _aggregate(per_clip, cfg, "stride_realism_ratio")
         section_count = section_total.get(cfg, 0)
-        lines.append(f"- **{cfg}**")
+        lines.append(f"- **{disp(cfg)}**")
         lines.append(f"    - Saturation %: **{sat_mean:.2f}**")
         lines.append(f"    - FK pos residual (m): **{fk_mean:.4f}**")
         lines.append(f"    - Shoulder yaw |mean| (deg): **{sh_mean:.2f}**")
         lines.append(f"    - Hip yaw wobble (deg/s): **{hipw:.1f}**")
+        lines.append(f"    - Floating % / Penetration %: **{float_mean:.1f}** / **{pen_mean:.1f}**")
+        lines.append(f"    - Stride/leg-length ratio: **{stride_mean:.2f}**")
         lines.append(f"    - IK failure sections (total): **{section_count}**")
     lines.append("")
 
     lines.append("Per-clip and per-section detail:")
     lines.append("")
     lines.append("- `summary.md` — full per-clip metric tables")
-    lines.append("- `ik_failures.md` — IK failure section listing with linked PNGs")
+    lines.append("- `limit_events.md` — single-DOF slam/pin/twist events with side-by-side renders")
     lines.append("- `corpus_stats.md` — BVH motion-statistics roll-up used for tier selection")
     lines.append("")
 
     lines.append("## 5. Conclusion")
     lines.append("")
     lines.append("> _TODO (analyst):_ Inspect the rendered PNGs under `frames/` and the")
-    lines.append("> per-section dominant-joint listings in `ik_failures.md`, then write a")
+    lines.append("> slam/pin/twist event listings in `limit_events.md`, then write a")
     lines.append("> short verdict (one to four bullet points) on which config wins overall,")
     lines.append("> which loses, and where the differences are largest.")
     lines.append("")
@@ -371,8 +463,8 @@ def write_report_md_skeleton(
     lines.append("")
     lines.append("> _TODO (analyst):_ For each config, narrate the dominant IK failure modes")
     lines.append("> (e.g. 'left_shoulder_roll saturates during forward reaches'). Use")
-    lines.append("> `ik_failures.md` and the rendered section PNGs to drive this. This")
-    lines.append("> section should supersede the *Known limitations (unsolved)* block in")
+    lines.append("> `limit_events.md` and the rendered side-by-side strips to drive this.")
+    lines.append("> This section should supersede the *Known limitations (unsolved)* block in")
     lines.append("> `soma_retargeter/configs/agibot_x2_ultra/README.md` if the picture has")
     lines.append("> changed.")
     lines.append("")

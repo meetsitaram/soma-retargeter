@@ -12,13 +12,19 @@ camera) so you can scrub through the motion and visually compare. The CSV
 format is `AgibotX2Ultra31DOF_CSVConfig` from soma_retargeter/assets/csv.py:
 columns 1..6 = root translate (cm) + root euler (deg), columns 7.. = joint
 DOFs in degrees, in the X2 joint order.
+
+Optionally pass --bvh to render the SOMA human BVH as a third lane
+(skin-tone capsule skeleton) so you can compare both retargets against the
+source motion in the same viewer.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -139,7 +145,77 @@ def main():
     parser.add_argument("--fps", type=float, default=60.0)
     parser.add_argument("--side-by-side-y", type=float, default=1.4,
                         help="Y separation between the two robots (m)")
+    parser.add_argument("--color-a", default="0.30,0.65,1.00",
+                        help="Robot A tint as R,G,B in [0,1] (default cyan-blue)")
+    parser.add_argument("--color-b", default="1.00,0.45,0.20",
+                        help="Robot B tint as R,G,B in [0,1] (default orange)")
+    parser.add_argument("--bvh", default=None, type=str,
+                        help="Optional BVH human motion to render as a 3rd lane. "
+                             "Pass an explicit path or 'auto' to resolve from "
+                             "<bench_dir>/corpus.json next to --csv-a.")
+    parser.add_argument("--bvh-y", default=None, type=float,
+                        help="Y position (m) of the BVH lane. Default: place outside "
+                             "robot A at y = -1.5 * side_by_side_y.")
+    parser.add_argument("--bvh-color", default="0.94,0.86,0.74",
+                        help="BVH skeleton tint as R,G,B (default warm skin-tone)")
     args = parser.parse_args()
+
+    def parse_rgb(s: str) -> np.ndarray:
+        parts = [float(x) for x in s.split(",")]
+        if len(parts) != 3:
+            raise ValueError(f"--color-* expects 'R,G,B', got {s!r}")
+        return np.array([parts[0], parts[1], parts[2], 1.0], dtype=np.float64)
+
+    rgba_a = parse_rgb(args.color_a)
+    rgba_b = parse_rgb(args.color_b)
+    rgba_bvh = parse_rgb(args.bvh_color)
+
+    bvh_path: Path | None = None
+    if args.bvh is not None:
+        if args.bvh == "auto":
+            csv_dir = args.csv_a.resolve().parent
+            bench_dir = csv_dir.parent  # .../<bench>/csvs/<file>.csv -> bench dir
+            corpus_json = bench_dir / "corpus.json"
+            if not corpus_json.exists():
+                raise SystemExit(f"--bvh auto: {corpus_json} not found")
+            csv_stem = args.csv_a.stem
+            if "__" not in csv_stem:
+                raise SystemExit(f"--bvh auto: cannot derive clip stem from {csv_stem}")
+            clip_stem = csv_stem.rsplit("__", 1)[0]
+            target_name = clip_stem + ".bvh"
+            corpus = json.loads(corpus_json.read_text())
+            for entry in corpus:
+                if entry.get("name") == target_name:
+                    bvh_path = Path(entry["path"])
+                    break
+            if bvh_path is None:
+                raise SystemExit(f"--bvh auto: '{target_name}' not in {corpus_json}")
+        else:
+            bvh_path = Path(args.bvh)
+            if not bvh_path.exists():
+                raise SystemExit(f"--bvh: {bvh_path} not found")
+
+    bvh_anim = None
+    bvh_joint_names: dict[str, int] = {}
+    if bvh_path is not None:
+        repo_root = Path(__file__).resolve().parents[1]
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+        from scripts.bench.side_by_side import (
+            _load_bvh_animation,
+            _bvh_joint_positions,
+            _resolve_bvh_joint_indices,
+        )
+        from scripts.bench.render import _add_user_geom, _draw_line
+        skeleton, animation, root_tx = _load_bvh_animation(bvh_path)
+        bvh_anim = (skeleton, animation, root_tx, _bvh_joint_positions, _add_user_geom, _draw_line)
+        bvh_joint_names = _resolve_bvh_joint_indices(bvh_path)
+        bvh_rate = float(getattr(animation, "sample_rate", getattr(animation, "fps", 120.0)))
+        print(
+            f"[BVH] {bvh_path.name}: "
+            f"{animation.num_frames} frames @ {bvh_rate:.1f} Hz "
+            f"(resolved from {'auto' if args.bvh == 'auto' else 'explicit path'})"
+        )
 
     data_a = load_csv(args.csv_a)
     data_b = load_csv(args.csv_b)
@@ -223,6 +299,41 @@ def main():
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
 
+    def colorize_robot(prefix: str, rgba: np.ndarray) -> int:
+        """Tint every visual geom belonging to the prefixed robot.
+
+        Walks the body tree from `<prefix>pelvis` and overrides geom_rgba +
+        disables material colors so the tint is visible regardless of MJCF
+        material assignment. Returns the number of geoms recolored.
+        """
+        root_name = f"{prefix}pelvis"
+        root_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, root_name)
+        if root_id < 0:
+            return 0
+        descendants = {root_id}
+        # Iteratively expand: a body belongs to the robot if its parent does.
+        changed = True
+        while changed:
+            changed = False
+            for b in range(model.nbody):
+                if b in descendants:
+                    continue
+                if int(model.body_parentid[b]) in descendants:
+                    descendants.add(b)
+                    changed = True
+        n_recolored = 0
+        for g in range(model.ngeom):
+            if int(model.geom_bodyid[g]) in descendants:
+                model.geom_matid[g] = -1  # disable material so rgba wins
+                model.geom_rgba[g] = rgba
+                n_recolored += 1
+        return n_recolored
+
+    n_a = colorize_robot("A_", rgba_a)
+    n_b = colorize_robot("B_", rgba_b)
+    print(f"[{args.label_a}] color RGB={tuple(rgba_a[:3])} ({n_a} geoms)")
+    print(f"[{args.label_b}] color RGB={tuple(rgba_b[:3])} ({n_b} geoms)")
+
     # Map csv joint name -> qpos index for each robot
     def qpos_indices(prefix: str):
         # The free joint occupies qpos[0:7] for that robot
@@ -248,14 +359,20 @@ def main():
         for i, jn in enumerate(CSV_JOINT_ORDER):
             data.qpos[jaddr[jn]] = frame_row[7 + i]
 
+    bvh_y = (
+        args.bvh_y if args.bvh_y is not None else -1.5 * args.side_by_side_y
+    )
     print(f"[{args.label_a}] at y = {-args.side_by_side_y/2:+.2f}")
     print(f"[{args.label_b}] at y = {+args.side_by_side_y/2:+.2f}")
+    if bvh_anim is not None:
+        print(f"[BVH human] at y = {bvh_y:+.2f}")
     print("Use the MuJoCo viewer keyboard:")
     print("  SPACE = pause / resume")
     print("  Mouse drag = orbit, scroll = zoom")
     print()
 
     dt = 1.0 / args.fps
+    bvh_offset_vec = np.array([0.0, bvh_y, 0.0])
     with mujoco.viewer.launch_passive(model, data, show_left_ui=False, show_right_ui=False) as viewer:
         frame = 0
         start = time.time()
@@ -279,6 +396,51 @@ def main():
                 apply_frame(frame_a_local, free_a, jaddr_a)
                 apply_frame(frame_b_local, free_b, jaddr_b)
                 mujoco.mj_forward(model, data)
+
+                if bvh_anim is not None:
+                    skeleton, animation, root_tx, _bvh_joint_positions, _add_user_geom, _draw_line = bvh_anim
+                    bvh_f = frame % animation.num_frames
+                    positions, parents = _bvh_joint_positions(bvh_path, bvh_f)
+                    positions = positions + bvh_offset_vec
+                    head_idx = bvh_joint_names.get("Head", -1)
+
+                    user_scn = viewer.user_scn
+                    user_scn.ngeom = 0
+                    eye3 = np.eye(3)
+                    body_rgba = tuple(rgba_bvh)
+                    joint_rgba = (
+                        float(rgba_bvh[0] * 0.9),
+                        float(rgba_bvh[1] * 0.85),
+                        float(rgba_bvh[2] * 0.80),
+                        float(rgba_bvh[3]),
+                    )
+                    bone_radius = 0.045
+                    for i, parent in enumerate(parents):
+                        p = positions[i]
+                        _add_user_geom(
+                            user_scn,
+                            mujoco.mjtGeom.mjGEOM_SPHERE,
+                            size=(0.025, 0.025, 0.025),
+                            pos=p, mat=eye3, rgba=joint_rgba,
+                        )
+                        if parent is not None and parent >= 0:
+                            d = float(np.linalg.norm(positions[i] - positions[parent]))
+                            thickness = bone_radius
+                            if d < 0.04:
+                                thickness = 0.012
+                            elif d < 0.10:
+                                thickness = 0.020
+                            _draw_line(
+                                user_scn, positions[parent], p,
+                                rgba=body_rgba, thickness=thickness,
+                            )
+                    if 0 <= head_idx < len(positions):
+                        _add_user_geom(
+                            user_scn,
+                            mujoco.mjtGeom.mjGEOM_SPHERE,
+                            size=(0.10, 0.10, 0.10),
+                            pos=positions[head_idx], mat=eye3, rgba=body_rgba,
+                        )
 
                 viewer.sync()
                 frame = (frame + 1) % n_frames

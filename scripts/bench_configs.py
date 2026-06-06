@@ -26,7 +26,7 @@ Quick-start:
     python scripts/bench_configs.py \\
         --ours soma_retargeter/configs/agibot_x2_ultra/soma_to_x2_ultra_retargeter_config.json \\
         --theirs /home/stickbot/Downloads/soma_to_x2_ultra_retargeter_config.json \\
-        --our-label config_a --their-label config_b \\
+        --our-label x2_uniform_h140 --their-label x2_uniform_h170_tuned \\
         --max-frames 3000
 """
 
@@ -70,21 +70,65 @@ DEFAULT_THEIRS = Path("/home/stickbot/Downloads/soma_to_x2_ultra_retargeter_conf
 # Pipeline pieces
 # ---------------------------------------------------------------------------
 
-def stage_configs(out_dir: Path, ours_src: Path, theirs_src: Path, our_label: str, their_label: str) -> dict[str, Path]:
+def stage_configs(
+    out_dir: Path,
+    primary_configs: list[tuple[Path, str]],
+) -> dict[str, Path]:
+    """Stage retargeter config JSONs into `<out_dir>/configs/<label>.json`.
+
+    ``primary_configs`` is an ordered list of ``(src_path, label)`` pairs.
+    The pipeline supports an arbitrary number of configs (N >= 2) — the
+    first two are the historical ``--ours`` / ``--theirs`` pair, but
+    additional configs come from ``--extra-config LABEL=PATH``.
+    """
     cfg_dir = out_dir / "configs"
     cfg_dir.mkdir(parents=True, exist_ok=True)
-    out_paths = {}
-    for src, label in [(ours_src, our_label), (theirs_src, their_label)]:
+    out_paths: dict[str, Path] = {}
+    for src, label in primary_configs:
         dst = cfg_dir / f"{label}.json"
-        shutil.copyfile(src, dst)
+        # Allow passing an --extra-config whose path is already inside the
+        # bench dir's configs/ folder (idempotent re-runs); only copy when
+        # source and destination differ.
+        if src.resolve() != dst.resolve():
+            shutil.copyfile(src, dst)
         out_paths[label] = dst
-    print(f"[INFO]: staged configs into {cfg_dir}")
+    print(f"[INFO]: staged {len(primary_configs)} configs into {cfg_dir}: "
+          f"{', '.join(label for _, label in primary_configs)}")
     return out_paths
+
+
+def _parse_extra_configs(extras: list[str] | None) -> list[tuple[str, Path]]:
+    """Parse ``--extra-config LABEL=PATH`` strings into [(label, Path), ...].
+
+    Validates that PATH exists and that LABEL is a usable directory name
+    (no slashes / spaces). Duplicate labels raise an error early.
+    """
+    if not extras:
+        return []
+    out: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for spec in extras:
+        if "=" not in spec:
+            raise SystemExit(f"--extra-config expects LABEL=PATH, got: {spec!r}")
+        label, raw_path = spec.split("=", 1)
+        label = label.strip()
+        if not label or any(c in label for c in "/\\ "):
+            raise SystemExit(f"--extra-config LABEL must be a simple identifier, got: {label!r}")
+        if label in seen:
+            raise SystemExit(f"--extra-config LABEL {label!r} specified twice")
+        path = Path(raw_path).expanduser().resolve()
+        if not path.is_file():
+            raise SystemExit(f"--extra-config {label} -> {path} (file not found)")
+        seen.add(label)
+        out.append((label, path))
+    return out
 
 
 def run_pair(
     clip_entry: dict,
     config_label: str,
+    *,
+    skip_existing_csv: bool = False,
     config_path: Path,
     out_dir: Path,
     max_frames: int | None,
@@ -101,11 +145,18 @@ def run_pair(
 
     record = {"clip": clip_name, "config": config_label}
 
-    # 1) Retarget
-    t0 = time.time()
-    n_frames = bench_retarget.retarget_clip(bvh_path, csv_path, config_path, max_frames=max_frames)
-    record["retarget_s"] = float(time.time() - t0)
-    record["num_frames"] = int(n_frames)
+    # 1) Retarget (or skip if CSV already exists and skip_existing_csv is set)
+    if skip_existing_csv and csv_path.is_file():
+        n_frames = int(np.loadtxt(csv_path, delimiter=",", skiprows=1, dtype=np.float64).shape[0])
+        record["retarget_s"] = 0.0
+        record["num_frames"] = n_frames
+        record["skipped_retarget"] = True
+        print(f"[INFO]:   skip retarget (csv exists, {n_frames} frames)")
+    else:
+        t0 = time.time()
+        n_frames = bench_retarget.retarget_clip(bvh_path, csv_path, config_path, max_frames=max_frames)
+        record["retarget_s"] = float(time.time() - t0)
+        record["num_frames"] = int(n_frames)
 
     # 2) Metrics + per-frame data
     t0 = time.time()
@@ -140,12 +191,19 @@ def run_pair(
     )
     record["sections"] = bench_frames.to_dicts(sections)
 
-    # 5) Render PNGs (top-1 frame per flag category + top-N section peaks)
+    # 5) Render PNGs (top-1 frame per flag category + top-N section peaks).
+    # When skip_existing_csv was active and the PNG already exists on disk,
+    # reuse it rather than re-rendering — these are per-clip diagnostic
+    # frames, not the side-by-side report renders, so re-rendering would be
+    # pure waste during an --extra-config pass.
     t0 = time.time()
     pngs: list[Path] = []
     # Flag PNGs
     for flag in flags:
         png = frames_dir / f"flag_{flag.category}_f{flag.frame_idx}.png"
+        if skip_existing_csv and png.is_file():
+            pngs.append(png)
+            continue
         try:
             bench_render.render_frame(
                 csv_path=csv_path, bvh_path=bvh_path,
@@ -161,6 +219,9 @@ def run_pair(
     # Section PNGs (up to render_section_cap)
     for i, sec in enumerate(sections[:render_section_cap]):
         png = frames_dir / f"section_{i:02d}_peak_f{sec.peak_frame}.png"
+        if skip_existing_csv and png.is_file():
+            pngs.append(png)
+            continue
         try:
             bench_render.render_frame(
                 csv_path=csv_path, bvh_path=bvh_path,
@@ -301,6 +362,13 @@ def main() -> None:
     ap.add_argument("--their-label", type=str, default="config_b",
                     help="Short identifier for the second config (used in JSON keys / on-disk render paths). "
                          "Pass --display-name to give it a human-readable label in the docs.")
+    ap.add_argument("--extra-config", action="append", default=None, metavar="LABEL=PATH",
+                    help="Add an additional retargeter config to the run, beyond --ours/--theirs. "
+                         "Repeatable: --extra-config hybrid=path/to/cfg.json --extra-config foo=path/to/foo.json")
+    ap.add_argument("--skip-existing-csv", action="store_true",
+                    help="During the retarget loop, skip any (clip, config) pair whose CSV already "
+                         "exists under csvs/. Use this when adding a new config via --extra-config "
+                         "to a bench dir whose other configs are already retargeted.")
 
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Override output dir (default: scratch/bench_<ts>)")
@@ -333,7 +401,7 @@ def main() -> None:
                     help="Comma-separated joint groups to restrict side-by-side events to (default: wrist,elbow,shoulder). Pass empty string for all.")
     ap.add_argument("--display-name", action="append", default=None,
                     help="Map a config key to a human-readable label, repeatable: "
-                         "--display-name config_a=h=1.40 --display-name config_b=h=1.70+wrist_smooth")
+                         "--display-name x2_uniform_h140=h=1.40 --display-name x2_uniform_h170_tuned=h=1.70+wrist_smooth")
     ap.add_argument("--no-human-row", action="store_true",
                     help="Skip the human BVH skeleton row in side-by-side renders")
     args = ap.parse_args()
@@ -358,9 +426,13 @@ def main() -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[INFO]: bench out_dir = {out_dir}")
 
-    # Stage configs
-    cfg_paths = stage_configs(out_dir, args.ours.resolve(), args.theirs.resolve(),
-                              args.our_label, args.their_label)
+    # Stage configs (primary pair + any --extra-config additions)
+    extra_configs = _parse_extra_configs(args.extra_config)
+    primary_list = [
+        (args.ours.resolve(),   args.our_label),
+        (args.theirs.resolve(), args.their_label),
+    ] + [(path, label) for label, path in extra_configs]
+    cfg_paths = stage_configs(out_dir, primary_list)
 
     # Screening + corpus assembly
     corpus_path = out_dir / "corpus.json"
@@ -391,7 +463,7 @@ def main() -> None:
         return
 
     # Main loop
-    configs_order = [args.our_label, args.their_label]
+    configs_order = [args.our_label, args.their_label] + [label for label, _ in extra_configs]
     per_clip: dict[str, dict] = {}
     sections_per_pair: dict[tuple[str, str], list[dict]] = {}
     section_pngs: dict[tuple[str, str], list[Path]] = {}
@@ -407,6 +479,7 @@ def main() -> None:
                 rec = run_pair(
                     clip_entry=entry,
                     config_label=cfg_label,
+                    skip_existing_csv=args.skip_existing_csv,
                     config_path=cfg_paths[cfg_label],
                     out_dir=out_dir,
                     max_frames=args.max_frames,
@@ -437,6 +510,13 @@ def main() -> None:
 
     runtime_acc["total_s"] = float(time.time() - t_total)
 
+    # Parse --display-name flags (also accepted on the analysis path).
+    display_names: dict[str, str] = {}
+    for spec in (args.display_name or []):
+        if "=" in spec:
+            k, v = spec.split("=", 1)
+            display_names[k.strip()] = v.strip()
+
     # Aggregate outputs
     bench_aggregate.dump_metrics_json(out_dir / "metrics.json", per_clip)
     bench_aggregate.write_summary_md(
@@ -445,12 +525,26 @@ def main() -> None:
         configs=configs_order,
         corpus_entries=corpus_entries,
         section_counts=section_counts,
+        display_names=display_names,
     )
-    bench_aggregate.write_ik_failures_md(
-        out_dir / "ik_failures.md",
-        sections_per_pair={k: v for k, v in sections_per_pair.items() if v},
-        section_pngs=section_pngs,
-    )
+
+    # Foot-floor contact chart (FK-derived). The limit_events.md flow rebuilds
+    # all charts via bench_charts.build_all; here we only need the
+    # metrics-driven chart since limit_events.json may not exist yet.
+    try:
+        bench_charts.chart_foot_floor(
+            per_clip=per_clip,
+            configs=configs_order,
+            out_path=out_dir / "frames" / "charts" / "foot_floor.png",
+            display_names=display_names or None,
+        )
+        print(f"[OK] chart `foot_floor` -> {out_dir / 'frames' / 'charts' / 'foot_floor.png'}")
+    except Exception as exc:
+        print(f"[WARN] foot_floor chart skipped: {exc}")
+    # NOTE: ik_failures.md is no longer written. It was a 4-saturated-DOF
+    # detector that fires on benign multi-limit poses (mostly leg/ankle near
+    # foot strike), which proved noisy and misleading. The slam/pin/twist
+    # events in limit_events.md replace it.
     bench_aggregate.write_report_md_skeleton(
         out_dir / "REPORT.md",
         out_dir=out_dir,
@@ -460,9 +554,10 @@ def main() -> None:
         section_counts=section_counts,
         section_total=section_total,
         runtime_summary=runtime_acc,
+        display_names=display_names,
     )
     print(f"\n[OK] bench complete in {runtime_acc['total_s']:.0f}s — see {out_dir}")
-    print(f"     summary.md / ik_failures.md / REPORT.md / metrics.json")
+    print(f"     summary.md / REPORT.md / metrics.json")
 
 
 if __name__ == "__main__":

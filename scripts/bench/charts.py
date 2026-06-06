@@ -66,6 +66,29 @@ def _by_group(data: dict) -> dict:
     return out
 
 
+def _bar_layout(n_configs: int, group_span: float = 0.86) -> tuple[float, "list[float]"]:
+    """Return (bar_width, [offsets]) for `n_configs` bars centred on each tick.
+
+    `group_span` is the total fraction of the tick spacing occupied by all
+    bars together. A smaller span = wider gaps between groups.
+    """
+    n = max(1, int(n_configs))
+    width = group_span / n
+    # Offsets so the bars are centred around each x tick:
+    #   for n=2 -> [-0.5w, +0.5w]
+    #   for n=3 -> [-w, 0, +w]
+    offsets = [(i - (n - 1) / 2.0) * width for i in range(n)]
+    return width, offsets
+
+
+# Per-config visual styling. For category-coloured charts (event_counts),
+# we vary alpha so each config still uses the slam/pin/twist palette but is
+# distinguishable. For solid-colour charts (events_by_group), we cycle
+# through a 4-tier neutral palette.
+_CONFIG_ALPHA = [0.45, 0.7, 0.95, 1.0]
+_CONFIG_NEUTRAL = ["#95A5A6", "#566573", "#2C3E50", "#17202A"]
+
+
 def _style(ax: "plt.Axes", title: str = "", ylabel: str = "events") -> None:
     ax.set_title(title, fontsize=13, fontweight="bold", color="#222")
     ax.set_ylabel(ylabel, fontsize=10)
@@ -101,18 +124,19 @@ def chart_event_counts(
     cat_counts = _categorize(data)
     cats = ["slam", "pin", "twist"]
     x = np.arange(len(cats))
-    width = 0.36
+    width, offsets = _bar_layout(len(cfgs))
 
-    fig, ax = plt.subplots(figsize=(5.4, 3.2), dpi=110)
+    # Scale figure width with number of configs so the bars don't squish.
+    fig, ax = plt.subplots(figsize=(5.4 + 0.6 * max(0, len(cfgs) - 2), 3.2), dpi=110)
     for i, cfg in enumerate(cfgs):
         vals = [cat_counts[cfg][c] for c in cats]
         rects = ax.bar(
-            x + (i - 0.5) * width,
+            x + offsets[i],
             vals,
             width,
             label=display_names.get(cfg, cfg),
             color=[_PALETTE["slam"], _PALETTE["pin"], _PALETTE["twist"]],
-            alpha=0.55 if i == 0 else 0.95,
+            alpha=_CONFIG_ALPHA[min(i, len(_CONFIG_ALPHA) - 1)],
             edgecolor="#111",
             linewidth=0.6,
         )
@@ -138,20 +162,34 @@ def chart_twist_severity(
     display_names = display_names or {}
     cfgs = list(data["configs"])
     cc = _categorize(data)
-    fig, ax = plt.subplots(figsize=(4.6, 3.0), dpi=110)
+    # Widen the figure based on the number of configs so long descriptive
+    # labels (e.g. "h=1.40+wrist_smooth") don't collide on the x axis.
+    fig_w = max(4.6, 2.2 * len(cfgs) + 1.0)
+    fig, ax = plt.subplots(figsize=(fig_w, 3.4), dpi=110)
     x = np.arange(len(cfgs))
     width = 0.55
     warns  = [cc[c]["twist_warn"]   for c in cfgs]
     severs = [cc[c]["twist_severe"] for c in cfgs]
     r1 = ax.bar(x, warns,  width, color=_PALETTE["warn"],   edgecolor="#111", linewidth=0.6, label="warn  (80° ≤ |palm-twist| < 100°)")
     r2 = ax.bar(x, severs, width, bottom=warns, color=_PALETTE["severe"], edgecolor="#111", linewidth=0.6, label="severe (|palm-twist| ≥ 100°)")
-    _annotate(ax, r1)
+    # Annotate the "warn" bar on top of itself (inside the stack) so the
+    # number doesn't collide with the "+severe" annotation above it.
+    for r in r1:
+        h = r.get_height()
+        if h <= 0:
+            continue
+        ax.annotate(
+            f"{int(h)}",
+            xy=(r.get_x() + r.get_width() / 2.0, h / 2.0),
+            ha="center", va="center",
+            fontsize=9, color="#111", fontweight="bold",
+        )
     for r, w in zip(r2, warns):
         h = r.get_height()
         if h <= 0:
             continue
         ax.annotate(
-            f"+{int(h)}",
+            f"+{int(h)} severe",
             xy=(r.get_x() + r.get_width() / 2.0, w + h),
             xytext=(0, 3),
             textcoords="offset points",
@@ -159,7 +197,10 @@ def chart_twist_severity(
             fontsize=9, color="#111", fontweight="bold",
         )
     ax.set_xticks(x)
-    ax.set_xticklabels([display_names.get(c, c) for c in cfgs], fontsize=11)
+    # Mild rotation if any descriptive label is long.
+    labels = [display_names.get(c, c) for c in cfgs]
+    rot = 12 if max((len(l) for l in labels), default=0) > 10 else 0
+    ax.set_xticklabels(labels, fontsize=10, rotation=rot, ha="right" if rot else "center")
     _style(ax, title="Palm-twist excursions (wrist_yaw) by severity", ylabel="event count")
     ax.legend(loc="upper left", frameon=False, fontsize=9)
     fig.tight_layout()
@@ -183,26 +224,94 @@ def chart_events_by_group(
     if groups is None:
         groups = ["wrist", "elbow", "shoulder", "hip", "knee", "ankle", "waist"]
     # Combined event count = slam + pin + twist
-    fig, ax = plt.subplots(figsize=(6.4, 3.4), dpi=110)
+    fig, ax = plt.subplots(figsize=(6.4 + 0.6 * max(0, len(cfgs) - 2), 3.4), dpi=110)
     x = np.arange(len(groups))
-    width = 0.36
+    width, offsets = _bar_layout(len(cfgs))
     for i, cfg in enumerate(cfgs):
         totals = [
             by_g[cfg][g]["slam"] + by_g[cfg][g]["pin"] + by_g[cfg][g]["twist"]
             for g in groups
         ]
         rects = ax.bar(
-            x + (i - 0.5) * width,
+            x + offsets[i],
             totals,
             width,
             label=display_names.get(cfg, cfg),
-            color=("#7F8C8D" if i == 0 else "#34495E"),
+            color=_CONFIG_NEUTRAL[min(i, len(_CONFIG_NEUTRAL) - 1)],
             edgecolor="#111", linewidth=0.6,
         )
         _annotate(ax, rects)
     ax.set_xticks(x)
     ax.set_xticklabels(groups, fontsize=10)
     _style(ax, title="Total IK-failure events by joint group  (slam + pin + twist)", ylabel="event count")
+    ax.legend(loc="upper right", frameon=False, fontsize=10)
+    fig.tight_layout()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return out_path
+
+
+def chart_foot_floor(
+    per_clip: dict,
+    configs: list[str],
+    out_path: Path,
+    *,
+    display_names: dict[str, str] | None = None,
+) -> Path:
+    """Grouped bar chart of floating/penetration % per config.
+
+    Input data is the metrics dict ({clip: {config: ClipMetrics-asdict, ...}})
+    rather than ``limit_events.json``, since these are FK-derived metrics
+    rather than slam/pin/twist events.
+    """
+    display_names = display_names or {}
+    cfgs = list(configs)
+    # Aggregate (mean across clips) — same convention as summary.md row.
+    def _mean_for(cfg: str, key: str) -> float:
+        vals = []
+        for clip_name, by_cfg in per_clip.items():
+            if cfg in by_cfg:
+                v = by_cfg[cfg].get(key)
+                if v is None:
+                    continue
+                vals.append(float(v))
+        return float(np.mean(vals)) if vals else 0.0
+
+    cats = ["floating_pct", "penetration_pct"]
+    cat_labels = ["Floating\n(foot above floor)", "Penetration\n(foot below floor)"]
+    x = np.arange(len(cats))
+    width, offsets = _bar_layout(len(cfgs))
+
+    fig, ax = plt.subplots(figsize=(5.4 + 0.6 * max(0, len(cfgs) - 2), 3.2), dpi=110)
+    # Use red for both because the failure mode is "off the floor in either
+    # direction"; vary alpha per config to distinguish.
+    for i, cfg in enumerate(cfgs):
+        vals = [_mean_for(cfg, k) for k in cats]
+        rects = ax.bar(
+            x + offsets[i],
+            vals,
+            width,
+            label=display_names.get(cfg, cfg),
+            color=["#E67E22", "#E74C3C"],
+            alpha=_CONFIG_ALPHA[min(i, len(_CONFIG_ALPHA) - 1)],
+            edgecolor="#111",
+            linewidth=0.6,
+        )
+        # Annotate as percentage with one decimal.
+        for r in rects:
+            h = r.get_height()
+            ax.annotate(
+                f"{h:.1f}%",
+                xy=(r.get_x() + r.get_width() / 2.0, h),
+                xytext=(0, 3),
+                textcoords="offset points",
+                ha="center", va="bottom",
+                fontsize=9, color="#111", fontweight="bold",
+            )
+    ax.set_xticks(x)
+    ax.set_xticklabels(cat_labels, fontsize=10)
+    _style(ax, title="Foot-floor contact (mean across corpus)", ylabel="% of frames")
     ax.legend(loc="upper right", frameon=False, fontsize=10)
     fig.tight_layout()
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,6 +335,18 @@ def build_all(
     out["event_counts"]    = chart_event_counts(data, out_dir / "event_counts.png", display_names=display_names)
     out["twist_severity"]  = chart_twist_severity(data, out_dir / "twist_severity.png", display_names=display_names)
     out["events_by_group"] = chart_events_by_group(data, out_dir / "events_by_group.png", display_names=display_names)
+    # Foot-floor needs metrics.json (FK-derived) rather than limit_events.json.
+    metrics_path = bench_dir / "metrics.json"
+    if metrics_path.is_file():
+        try:
+            per_clip = json.loads(metrics_path.read_text())
+            configs = list(data["configs"])
+            out["foot_floor"] = chart_foot_floor(
+                per_clip, configs, out_dir / "foot_floor.png",
+                display_names=display_names,
+            )
+        except Exception as exc:
+            print(f"[WARN] foot_floor chart skipped: {exc}")
     if verbose:
         for name, p in out.items():
             print(f"[OK] chart `{name}` -> {p}")
@@ -241,7 +362,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bench-dir", type=Path, required=True)
     ap.add_argument("--display-name", action="append", default=None,
-                    help="Map a config key to a display label; repeatable: --display-name v5_ours=h=1.40")
+                    help="Map a config key to a display label; repeatable: --display-name x2_uniform_h140=h=1.40")
     args = ap.parse_args()
 
     display_names: dict[str, str] = {}

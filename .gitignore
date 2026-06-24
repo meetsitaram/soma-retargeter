@@ -17,27 +17,11 @@ imgui.ini
 MUJOCO_LOG.TXT
 logs/
 
-# Local scratch / experiment outputs.
-# The shareable artifacts under scratch/bench_<timestamp>/ are committed
-# explicitly (REPORT.md, summary.md, limit_events.md, charts/, side_by_side/, ...).
-scratch/sweep_*/
-scratch/compare_tmp/
-scratch/csv/
-scratch/csvs/
-scratch/bench_*/csvs/
-scratch/bench_*/frames/wrist_yaw_peaks/
-
-# Per-clip raw renders inside bench dirs (only frames/charts/ and
-# frames/side_by_side/ are part of the report).
-scratch/bench_*/frames/*__v5_ours/
-scratch/bench_*/frames/*__colleague/
-scratch/bench_*/frames/*__config_a/
-scratch/bench_*/frames/*__config_b/
-scratch/bench_*/frames/smoke_*.png
-
-# Other scratch byproducts
-scratch/configs/
-scratch/bench_*/corpus_stats.json
+# Local scratch / experiment outputs — everything under scratch/ is ignored.
+# Already-tracked artifacts under scratch/bench_<timestamp>/ (REPORT.md,
+# summary.md, limit_events.md, charts/, side_by_side/, ...) stay tracked
+# since .gitignore does not untrack existing entries.
+scratch/
 
 # Bulky motion data (BVH/CSV exports stored under assets/).
 assets/motions/

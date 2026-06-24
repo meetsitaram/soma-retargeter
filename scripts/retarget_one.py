@@ -6,6 +6,10 @@ its config from disk; this script lets us override `model_height` (and
 optionally point to an alternate scaler config) in memory so we can
 parameter-sweep without thrashing the committed JSON files.
 
+For chain-matched (and other non-default) retargets that need IK weight /
+mask changes on top of a swapped scaler, pass the full retargeter config
+via ``--retargeter-config`` instead of overriding piecemeal.
+
 Usage examples:
 
     python scripts/retarget_one.py \
@@ -22,6 +26,12 @@ Usage examples:
         --model-height 1.40 \
         --scaler-config scratch/configs/sweep_cell_42.json \
         --out scratch/csv/sweep_cell_42.csv
+
+    python scripts/retarget_one.py \
+        --bvh assets/motions/x2-diag-bvh/walk_forward_loop_001__A021.bvh \
+        --retargeter-config \
+            soma_retargeter/configs/agibot_x2_ultra/soma_to_x2_ultra_chain_matched_retargeter_config.json \
+        --out scratch/csv/A021__chain_matched.csv
 """
 
 from __future__ import annotations
@@ -49,9 +59,16 @@ from soma_retargeter.utils.space_conversion_utils import (  # noqa: E402
 )
 
 
-def _load_retarget_config(scaler_override: Path | None, model_height_override: float | None) -> dict:
-    cfg_path = io_utils.get_config_file("agibot_x2_ultra", "soma_to_x2_ultra_retargeter_config.json")
-    cfg = io_utils.load_json(cfg_path)
+def _load_retarget_config(
+    scaler_override: Path | None,
+    model_height_override: float | None,
+    retargeter_override: Path | None = None,
+) -> dict:
+    if retargeter_override is not None:
+        cfg = io_utils.load_json(retargeter_override.resolve())
+    else:
+        cfg_path = io_utils.get_config_file("agibot_x2_ultra", "soma_to_x2_ultra_retargeter_config.json")
+        cfg = io_utils.load_json(cfg_path)
     if model_height_override is not None:
         cfg["model_height"] = float(model_height_override)
     if scaler_override is not None:
@@ -97,6 +114,11 @@ def main():
                         help="Override `model_height` in the retargeter config (e.g. 1.40)")
     parser.add_argument("--scaler-config", type=Path, default=None,
                         help="Override scaler config JSON path (relative to package root or absolute)")
+    parser.add_argument("--retargeter-config", type=Path, default=None,
+                        help="Use a full retargeter config JSON instead of the default base + overrides "
+                             "(e.g. soma_retargeter/configs/agibot_x2_ultra/"
+                             "soma_to_x2_ultra_chain_matched_retargeter_config.json). "
+                             "`--scaler-config` / `--model-height` still apply on top if also given.")
     parser.add_argument("--device", default=None, help="Optional warp device (e.g. 'cuda:0')")
     args = parser.parse_args()
 
@@ -110,7 +132,13 @@ def main():
         if not scaler_override.is_file():
             raise SystemExit(f"Scaler config not found: {scaler_override}")
 
-    cfg = _load_retarget_config(scaler_override, args.model_height)
+    retargeter_override = None
+    if args.retargeter_config is not None:
+        retargeter_override = args.retargeter_config.expanduser().resolve()
+        if not retargeter_override.is_file():
+            raise SystemExit(f"Retargeter config not found: {retargeter_override}")
+
+    cfg = _load_retarget_config(scaler_override, args.model_height, retargeter_override)
     print(f"[INFO]: model_height = {cfg['model_height']}")
     print(f"[INFO]: scaler_config = {cfg['human_robot_scaler_config']}")
     print(f"[INFO]: BVH = {bvh_path.name}")

@@ -8,12 +8,31 @@ are full-length (no `--max-frames` truncation).
 > commands, no bench dir required) lives at
 > [`demos/three_config_comparison/`](../../demos/three_config_comparison/README.md).
 
+## About `model_height`
+
+`model_height` is the assumed **height of the SOMA human actor** (not the
+robot). The scaler computes `ratio = model_height / human_height_assumption`
+(`human_height_assumption` defaults to **1.8 m**) and multiplies every entry
+in `joint_scales` by that ratio
+([`soma_retargeter/robotics/human_to_robot_scaler.py:22`](../../soma_retargeter/robotics/human_to_robot_scaler.py)).
+Dropping it to e.g. **1.40** shrinks every joint segment uniformly by 22 %.
+The same config should work across robots (X2, G1, Booster) — robot-specific
+calibration goes into per-joint `joint_scales` and the `ik_map`
+`t_weight`/`r_weight`, not `model_height`.
+
+> **Why we tried `model_height = 1.40` first:** to mitigate hip-twisting on
+> walks. It worked there but required heavy compensating rescales elsewhere
+> and broke cartwheel-class motions (arms going underground). The cleaner
+> fix for hip twist was to keep `model_height = 1.7` and raise
+> `Hips.r_weight` to 10 + add wrist smoothing — which is exactly what
+> `x2_uniform_h170_tuned` does (and `x2_chain_matched` inherits).
+
 ## Configs
 
 | | `x2_shoulder_fix` *(commit [`601c105`](https://github.com/meetsitaram/soma-retargeter/commit/601c105e2924e63264963405197da302791e719d))* | `x2_uniform_h170_tuned` | `x2_chain_matched` |
 |---|---|---|---|
 | **Scaler** | uniform | uniform | per-chain |
-| `model_height` | 1.70 | 1.70 | 1.80 *(ignored by per-chain)* |
+| `model_height` *(SOMA human height)* | 1.70 | 1.70 | 1.80 *(ratio≈1.0 — per-chain scales override)* |
 | `Hips.r_weight` | 2.0 | **10.0** | **10.0** |
 | `Hand.t_weight` | 2.0 | 2.0 | 2.0 |
 | `Hand.r_weight` | 0.1 | **0.2** | **0.2** |

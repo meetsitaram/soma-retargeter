@@ -30,12 +30,26 @@ demos/three_config_comparison/
     └── x2_chain_matched.json
 ```
 
+## About `model_height`
+
+`model_height` is the assumed **height of the SOMA human actor** (not the
+robot). The scaler computes `ratio = model_height / human_height_assumption`
+(default `human_height_assumption = 1.8 m`) and multiplies every entry in
+`joint_scales` by that ratio
+(`soma_retargeter/robotics/human_to_robot_scaler.py:22`). So setting it to
+**1.40** uniformly shrinks every joint segment by 22 %. The same config
+should work across robots — robot-specific tuning lives in per-joint
+`joint_scales` and the `ik_map` `t_weight`/`r_weight`, not in
+`model_height`. The cleaner path for hip-twist fixes (used by
+`x2_uniform_h170_tuned` and `x2_chain_matched`) is to keep `model_height` at
+1.7 and raise `Hips.r_weight` to 10 + add wrist smoothing.
+
 ## The three configs
 
 | | `x2_shoulder_fix` ([`601c105`](https://github.com/meetsitaram/soma-retargeter/commit/601c105e2924e63264963405197da302791e719d)) | `x2_uniform_h170_tuned` | `x2_chain_matched` |
 |---|---|---|---|
 | Scaler | uniform | uniform | per-chain (matches X2 link lengths) |
-| `model_height` | 1.70 | 1.70 | 1.80 *(ignored by per-chain scaler)* |
+| `model_height` *(SOMA human height)* | 1.70 | 1.70 | 1.80 *(ratio≈1.0 — per-chain scales override)* |
 | `Hips.r_weight` (pelvis rot lock) | 2.0 | **10.0** | **10.0** |
 | `Hand.r_weight` | 0.1 | **0.2** | **0.2** |
 | `shoulder_pitch/yaw` mask | **0.05** | 0.1 | 0.1 |

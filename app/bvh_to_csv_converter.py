@@ -451,10 +451,23 @@ class Viewer:
         retarget_source = self.config['retarget_source']
         retarget_solver = self.config['retargeter']
         retarget_target = self.config["retarget_target"]
+        # Optional retargeter-config override: lets a caller select a non-default
+        # tuning (e.g. chain_matched) without changing the retarget_target.
+        # NewtonPipeline already supports a retarget_config dict override; when
+        # this key is absent it falls back to its built-in lookup.
+        retarget_config_override = None
+        retargeter_config_rel = self.config.get('retargeter_config')
+        if retargeter_config_rel:
+            retargeter_config_path = io_utils.get_config_file(retargeter_config_rel)
+            print(f"[INFO]: Using retargeter_config override -> {retargeter_config_path}")
+            retarget_config_override = io_utils.load_json(retargeter_config_path)
         retarget_pipeline = None
         if (retarget_solver == 'Newton'):
             import soma_retargeter.pipelines.newton_pipeline as newton_pipeline
-            retarget_pipeline = newton_pipeline.NewtonPipeline(bvh_skeleton, retarget_source, retarget_target)
+            retarget_pipeline = newton_pipeline.NewtonPipeline(
+                bvh_skeleton, retarget_source, retarget_target,
+                retarget_config=retarget_config_override,
+            )
         if retarget_pipeline is None:
             print(f"[ERROR]: Invalid retarget solver selected [{retarget_solver}]. Use 'Newton'.")
             exit(-1)

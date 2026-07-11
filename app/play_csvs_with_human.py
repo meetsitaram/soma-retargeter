@@ -187,38 +187,50 @@ class PlaybackApp:
             for y in robot_ys
         ]
 
-        x2_mjcf = (
+        # Auto-detect the robot type of each CSV (36 cols = Unitree G1 29-DOF,
+        # 38 cols = Agibot X2 Ultra 31-DOF) so a G1 and an X2 can be shown side
+        # by side, not just N identical robots.
+        g1_mjcf = str(newton.utils.download_asset("unitree_g1") / "mjcf" / "g1_29dof_rev_1_0.xml")
+        x2_mjcf = str(
             pathlib.Path(__file__).resolve().parent.parent
-            / "soma_retargeter"
-            / "robot_assets"
-            / "agibot_x2_ultra"
-            / "x2_ultra.xml"
+            / "soma_retargeter" / "robot_assets" / "agibot_x2_ultra" / "x2_ultra.xml"
         )
-        robot_builder = newton.ModelBuilder()
-        robot_builder.add_mjcf(str(x2_mjcf))
+        _ROBOTS = {
+            "g1": (g1_mjcf, csv_utils.UnitreeG129DOF_CSVConfig()),
+            "x2": (x2_mjcf, csv_utils.AgibotX2Ultra31DOF_CSVConfig()),
+        }
+
+        def _detect(p):
+            return "g1" if len(open(p).readline().strip().split(",")) == 36 else "x2"
+
+        self.robot_types = [_detect(p) for p in csv_paths]
 
         builder = newton.ModelBuilder()
         builder.add_ground_plane()
-        for _ in range(self.num_robots):
-            builder.add_builder(robot_builder, wp.transform_identity())
+        self.robot_num_joint_q_list = []
+        for rt in self.robot_types:
+            rb = newton.ModelBuilder()
+            rb.add_mjcf(_ROBOTS[rt][0])
+            self.robot_num_joint_q_list.append(int(rb.joint_coord_count))
+            builder.add_builder(rb, wp.transform_identity())
         self.model = builder.finalize()
 
         self.viewer.set_model(self.model)
         self.viewer.set_world_offsets([0, 0, 0])
         self.state = self.model.state()
 
-        self.robot_num_joint_q = (
-            self.model.joint_coord_count // self.model.articulation_count
-        )
-        self.robot_joint_q_offsets = [
-            int(i * self.robot_num_joint_q) for i in range(self.model.articulation_count)
-        ]
+        # Cumulative per-robot joint_q offsets (robots may have different DOF).
+        self.robot_joint_q_offsets = []
+        _off = 0
+        for _n in self.robot_num_joint_q_list:
+            self.robot_joint_q_offsets.append(_off)
+            _off += _n
         self.robot_default_joint_q_values = self.model.joint_q.numpy()
 
-        # ----- CSV motion buffers ----------------------------------------------
-        csv_config = csv_utils.AgibotX2Ultra31DOF_CSVConfig()
+        # ----- CSV motion buffers (per-robot config) ---------------------------
         self.robot_csv_animation_buffers = [
-            csv_utils.load_csv(str(p), csv_config=csv_config) for p in csv_paths
+            csv_utils.load_csv(str(p), csv_config=_ROBOTS[rt][1])
+            for p, rt in zip(csv_paths, self.robot_types)
         ]
 
         # ----- BVH human (mesh) -------------------------------------------------
@@ -401,7 +413,7 @@ class PlaybackApp:
                 wp.array(data, dtype=wp.float32),
                 joint_q_offset,
                 0,
-                self.robot_num_joint_q,
+                self.robot_num_joint_q_list[i],
             )
             buffer.xform = prev_xform
         newton.eval_fk(
@@ -468,6 +480,9 @@ class PlaybackApp:
         self.viewer.end_frame()
 
     def run(self):
+        cam = getattr(self, "_render_cam", None)
+        if cam is not None and hasattr(self.viewer, "set_camera"):
+            self.viewer.set_camera(wp.vec3(cam[0], 0.0, cam[1]), cam[2], -180.0)
         print()
         print("Playback controls (Newton viewer):")
         print("  mouse drag        = orbit camera")
@@ -548,6 +563,11 @@ def main():
                              "human-back. Ignored in --layout row.")
     parser.add_argument("--fps", type=float, default=60.0,
                         help="Viewer / playback FPS.")
+    parser.add_argument("--no-gizmos", action="store_true",
+                        help="Hide the move/rotate gizmos (clean render).")
+    parser.add_argument("--cam", type=str, default=None,
+                        help="Frame the camera as 'x,z,pitch' (e.g. '4.5,1.2,-6'), "
+                             "yaw fixed at -180 to face the row. Default: viewer default.")
     viewer, args = newton.examples.init(parser)
 
     csv_paths = []
@@ -591,6 +611,11 @@ def main():
             row_spacing=args.row_spacing,
             fps=args.fps,
         )
+        if args.no_gizmos:
+            app.show_gizmos = False
+        if args.cam:
+            cx, cz, cpitch = (float(v) for v in args.cam.split(","))
+            app._render_cam = (cx, cz, cpitch)
         app.run()
 
 

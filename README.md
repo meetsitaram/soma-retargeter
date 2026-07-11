@@ -1,7 +1,9 @@
 # SOMA Retargeter
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-![SOMA Retargeter Banner](assets/docs/banner.gif)
+![The same human dance retargeted onto the SOMA human, Unitree G1, and Agibot X2 Ultra](assets/docs/banner.gif)
+
+The same human dance, side by side on the **SOMA human**, **Unitree G1**, and **Agibot X2 Ultra** — G1 via the SOMA→G1 retarget, X2 via the G1→X2 method ([docs/g1_to_x2.md](docs/g1_to_x2.md)).
 
 Convert [SOMA](https://github.com/NVlabs/SOMA-X) human motion captures into humanoid robot joint animation. Takes BVH motion files as input and produces robot-playable CSV joint data as output using GPU-optimized inverse kinematics via [Newton](https://github.com/newton-physics/newton) and high-performance computation with [NVIDIA Warp](https://github.com/NVIDIA/warp).
 

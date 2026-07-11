@@ -11,6 +11,10 @@ forward-kinematics keypoints** instead of a human skeleton, then fixes the arms 
 **direct joint map**. Result vs. a reference X2 retarget: **~0.8 cm / 3.8° on walks**,
 and correct, un-splayed, expressive arms on dances.
 
+![The same hiphop dance on the SOMA human, Unitree G1, and Agibot X2 Ultra](../assets/docs/human_g1_x2.gif)
+
+*Left → right: SOMA human, Unitree G1 (SOMA→G1), Agibot X2 Ultra (G1→X2, this method) — the same clip on all three.*
+
 ---
 
 ## Pipeline

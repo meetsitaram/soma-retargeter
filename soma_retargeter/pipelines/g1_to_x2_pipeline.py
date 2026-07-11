@@ -48,6 +48,7 @@ _SOMA_INIT_BVH = str(_PKG / "configs" / "soma" / "soma_zero_frame0.bvh")
 _X2_MJCF = str(_PKG / "robot_assets" / "agibot_x2_ultra" / "x2_ultra.xml")
 
 G1_NUM_DOF = 29
+X2_NUM_DOF = 31
 
 # The 14 X2 ik_map effectors, in order, and the G1 body whose FK world pose
 # supplies each one (hands map to wrist_yaw on G1 vs wrist_roll on X2).
@@ -86,6 +87,8 @@ class G1ToX2Retargeter:
         self.scale = float(self.calib["position_scale"])
         self.se_fit = self.calib["shoulder_elbow_fit"]           # {joint: [a, b]}
         self.wrist_remap = self.calib["wrist_remap"]             # {x2_joint: [g1_joint, sign]}
+        # airborne/acrobatic post-process: per-frame vertical clamp to G1 (off by default)
+        self.floor_clamp = bool(self.calib.get("floor_clamp", False))
 
         # G1 FK model + tracked body ids
         self.g1_model = mujoco.MjModel.from_xml_path(g1_mjcf or _g1_mjcf_path())
@@ -93,12 +96,13 @@ class G1ToX2Retargeter:
         self.g1_body_ids = [mujoco.mj_name2id(self.g1_model, mujoco.mjtObj.mjOBJ_BODY, b)
                             for b in EFFECTOR_G1_BODIES]
 
-        # X2 joint limits (deg) for clamping the mapped arm joints
-        x2m = mujoco.MjModel.from_xml_path(_X2_MJCF)
+        # X2 FK model (joint-limit clamping of arm joints + optional floor clamp)
+        self.x2_model = mujoco.MjModel.from_xml_path(_X2_MJCF)
+        self.x2_data = mujoco.MjData(self.x2_model)
         self.x2_lim = {}
         for j in list(self.se_fit) + list(self.wrist_remap):
-            jid = mujoco.mj_name2id(x2m, mujoco.mjtObj.mjOBJ_JOINT, j)
-            self.x2_lim[j] = tuple(np.degrees(x2m.jnt_range[jid]))
+            jid = mujoco.mj_name2id(self.x2_model, mujoco.mjtObj.mjOBJ_JOINT, j)
+            self.x2_lim[j] = tuple(np.degrees(self.x2_model.jnt_range[jid]))
 
         # X2 IK pipeline (arm rotation weights zeroed via the retargeter config)
         skel, _ = bvh_utils.BVHImporter().create_skeleton(_SOMA_INIT_BVH)
@@ -124,10 +128,32 @@ class G1ToX2Retargeter:
                 tg[t, e, 0:3] = self.g1_data.xpos[bid]
                 w, x, y, z = self.g1_data.xquat[bid]
                 tg[t, e, 3:7] = [x, y, z, w]
-        # scale about the clip-start floor point (shrinks pose+height+trajectory)
-        center = tg[0, 0, 0:3].copy()
-        center[2] = 0.0
-        tg[:, :, 0:3] = center + self.scale * (tg[:, :, 0:3] - center)
+        # scale keypoints to X2 proportions. Two centering modes:
+        #  - "clip_start_floor" (default): about a FIXED floor point under the
+        #    start pelvis -> shrinks pose + height + walk trajectory together.
+        #    Correct for upright, feet-on-ground locomotion.
+        #  - "pelvis": about EACH frame's own pelvis -> shrinks only the pose
+        #    (limb lengths), preserving the root's vertical/rotational travel.
+        #    Correct for airborne / inverted motion (jumps, cartwheels) where a
+        #    fixed-floor center would vertically squash the flight phase.
+        mode = self.calib.get("position_scale_center", "clip_start_floor")
+        if mode == "pelvis":
+            c = tg[:, 0:1, 0:3]                                   # (T,1,3) per-frame pelvis
+            tg[:, :, 0:3] = c + self.scale * (tg[:, :, 0:3] - c)
+        elif mode == "contact_floor":
+            # Per-frame center at the pelvis XY but at the height of the LOWEST
+            # keypoint (the ground-contact point: feet in stance, HANDS in a
+            # handstand). Shrinks the body to X2 proportions while keeping the
+            # planted point on the floor -> no squash AND no float. For
+            # continuous-contact acrobatics (cartwheels, floor breaking).
+            c = np.empty((T, 1, 3))
+            c[:, 0, 0:2] = tg[:, 0, 0:2]                          # pelvis XY
+            c[:, 0, 2] = tg[:, :, 2].min(axis=1)                  # lowest keypoint Z
+            tg[:, :, 0:3] = c + self.scale * (tg[:, :, 0:3] - c)
+        else:
+            center = tg[0, 0, 0:3].copy()
+            center[2] = 0.0
+            tg[:, :, 0:3] = center + self.scale * (tg[:, :, 0:3] - center)
         return tg
 
     # -- stage 3: inject -> X2 IK -> CSV -------------------------------------
@@ -159,11 +185,49 @@ class G1ToX2Retargeter:
             f.write(header + "\n")
             np.savetxt(f, x2, delimiter=",", fmt="%.6f")
 
+    # -- stage 5 (optional): floor clamp for airborne / acrobatic motion -----
+    @staticmethod
+    def _min_body_z(model, data, mat: np.ndarray, ndof: int) -> np.ndarray:
+        """Per-frame lowest body-origin Z (m) from a soma-format pose matrix."""
+        out = np.empty(len(mat))
+        for t, row in enumerate(mat):
+            data.qpos[0:3] = row[1:4] * 0.01
+            q = R.from_euler("xyz", np.deg2rad(row[4:7])).as_quat()   # xyzw
+            data.qpos[3:7] = [q[3], q[0], q[1], q[2]]
+            data.qpos[7:7 + ndof] = np.deg2rad(row[7:7 + ndof])
+            mujoco.mj_forward(model, data)
+            out[t] = data.xpos[1:, 2].min()      # skip world body 0
+        return out
+
+    def _floor_clamp(self, out_csv: str, g1_csv: str, smooth_k: int = 5) -> None:
+        """Shift the X2 root Z per frame so X2's lowest body tracks G1's lowest
+        body. This plants whatever limb is actually on the floor (feet in stance,
+        HANDS in a handstand, nothing mid-flight) without assuming feet-on-ground
+        -- the fix for cartwheels / backflips where a fixed floor sinks or floats
+        the robot. Lightly smoothed to avoid vertical jitter."""
+        g1 = np.loadtxt(g1_csv, delimiter=",", skiprows=1, dtype=np.float64)
+        x2 = np.loadtxt(out_csv, delimiter=",", skiprows=1, dtype=np.float64)
+        T = min(len(g1), len(x2))
+        gz = self._min_body_z(self.g1_model, self.g1_data, g1[:T], G1_NUM_DOF)
+        xz = self._min_body_z(self.x2_model, self.x2_data, x2[:T], X2_NUM_DOF)
+        offset_cm = (gz - xz) * 100.0
+        if smooth_k > 1:
+            ker = np.ones(smooth_k) / smooth_k
+            offset_cm = np.convolve(np.pad(offset_cm, smooth_k // 2, mode="edge"), ker, mode="valid")[:T]
+        x2 = x2[:T]
+        x2[:, 3] += offset_cm                     # root_translateZ (cm)
+        header = open(out_csv).readline().strip()
+        with open(out_csv, "w") as f:
+            f.write(header + "\n")
+            np.savetxt(f, x2, delimiter=",", fmt="%.6f")
+
     # -- public API ----------------------------------------------------------
     def retarget(self, g1_csv: str, out_csv: str) -> None:
         """Retarget a single G1 CSV to an X2 CSV written at out_csv."""
         self._inject(self._keypoints(g1_csv), out_csv)
         self._arm_jointmap(out_csv, g1_csv)
+        if self.floor_clamp:
+            self._floor_clamp(out_csv, g1_csv)
 
     def retarget_dir(self, g1_dir: str, out_dir: str) -> int:
         """Retarget every G1 CSV in g1_dir; returns the count converted."""

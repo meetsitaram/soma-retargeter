@@ -2,8 +2,22 @@
 """Batch-retarget Unitree G1 CSVs to Agibot X2 Ultra CSVs (G1 -> X2 method).
 
 Standalone entry point, alongside app/bvh_to_csv_converter.py (which is SOMA -> robot).
-Consumes G1 retarget CSVs (36 cols: root + 29 DOF, as produced by `bvh_to_csv_converter
---config <... retarget_target: unitree_g1 ...>`) and writes X2 Ultra CSVs (38 cols).
+Writes X2 Ultra CSVs (38 cols: Frame + root + 31 DOF).
+
+EXPECTED INPUT FORMAT (the G1 retarget CSV, exactly as `bvh_to_csv_converter --config
+<... retarget_target: unitree_g1 ...>` writes it): one HEADER row + 36 columns:
+
+    Frame,
+    root_translateX, root_translateY, root_translateZ            # centimetres
+    root_rotateX,    root_rotateY,    root_rotateZ               # euler xyz, DEGREES
+    <29 named joints>_dof                                        # DEGREES, standard
+                                                                 # G1 29-DOF order
+
+WARNING: a raw G1 *qpos* CSV is also 36 columns (root + 29 DOF) but is NOT this format --
+it is headerless and uses metres + a quaternion + radians, and will silently produce
+garbage here. Convert it first:
+
+    scripts/g1_qpos_to_soma_csv.py --src <qpos.csv> --dst <g1.csv>
 
 Usage (from the repo root, with the project venv):
     .venv/bin/python app/g1_csv_to_x2_csv.py --g1-dir <dir of G1 csvs> --out-dir <dir>
@@ -23,7 +37,10 @@ _CFG_DIR = Path(__file__).resolve().parents[1] / "soma_retargeter" / "configs" /
 
 def main():
     ap = argparse.ArgumentParser(description="Retarget G1 CSVs to X2 Ultra CSVs")
-    ap.add_argument("--g1-dir", required=True, help="directory of G1 retarget CSVs")
+    ap.add_argument("--g1-dir", required=True,
+                    help="directory of G1 retarget CSVs (header + 36 cols: Frame, "
+                         "root_translate[cm], root_rotate[euler deg], 29 joints[deg]). "
+                         "Raw qpos CSVs must be converted with scripts/g1_qpos_to_soma_csv.py first.")
     ap.add_argument("--out-dir", required=True, help="directory to write X2 Ultra CSVs")
     ap.add_argument("--config", default=None, help="retargeter-config JSON override")
     ap.add_argument("--calibration", default=None, help="calibration JSON override")

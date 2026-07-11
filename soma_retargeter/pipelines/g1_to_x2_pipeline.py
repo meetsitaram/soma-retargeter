@@ -112,6 +112,14 @@ class G1ToX2Retargeter:
 
     # -- stage 1+2: G1 FK -> scaled (F,14,7) keypoints -----------------------
     def _keypoints(self, g1_csv: str) -> np.ndarray:
+        with open(g1_csv) as f:
+            header = f.readline()
+        if "root_rotate" not in header and "root_translate" not in header:
+            raise ValueError(
+                f"{g1_csv}: not a G1 retarget CSV. Expected a header row with "
+                "root_translate[cm]/root_rotate[euler deg] + named *_dof joints[deg]. "
+                "A raw G1 qpos CSV (headerless, metres + quaternion + radians) will NOT "
+                "work here -- convert it first with scripts/g1_qpos_to_soma_csv.py.")
         mat = np.loadtxt(g1_csv, delimiter=",", skiprows=1, dtype=np.float64)
         if mat.ndim == 1:
             mat = mat[None, :]

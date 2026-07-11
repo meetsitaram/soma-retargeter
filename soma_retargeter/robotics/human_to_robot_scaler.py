@@ -35,10 +35,22 @@ class HumanToRobotScaler:
         joint_offsets["LeftToeBase"] = joint_offsets["LeftToe"]
         joint_offsets["RightToeBase"] = joint_offsets["RightToe"]
 
+        # Optional per-joint world-space offsets, applied AFTER the rotated
+        # joint_offsets above. Used by chain-matched calibration to lift the
+        # foot IK targets so that the robot's ankle joint sits at its
+        # natural rest height (sole on floor) when the BVH foot is at Y=0.
+        world_offset_data = config.get('world_offsets', {})
+        world_offsets = {}
+        for joint_name, entry in world_offset_data.items():
+            world_offsets[joint_name] = wp.vec3(*entry)
+
         self.mapped_joints = [name for name in self.skeleton.joint_names if name in joint_scales.keys()]
         self.mapped_joint_indices = wp.array([self.skeleton.joint_index(name) for name in self.mapped_joints], dtype=wp.int32)
         self.mapped_joint_scales = wp.array([joint_scales[name] for name in self.mapped_joints], dtype=wp.float32)
         self.mapped_joint_offsets = wp.array([joint_offsets[name] for name in self.mapped_joints], dtype=wp.transform)
+        self.mapped_joint_world_offsets = wp.array(
+            [world_offsets.get(name, wp.vec3(0.0, 0.0, 0.0)) for name in self.mapped_joints],
+            dtype=wp.vec3)
 
         joint_parents = config['joint_parents']
         self.mapped_joint_parents = [
@@ -89,17 +101,19 @@ class HumanToRobotScaler:
 
         @wp.kernel
         def compute_scaled_effectors_kernel(
-            in_num_mapped_joints    : wp.int32,
-            in_global_pose          : wp.array(dtype=wp.transform),
-            in_mapped_joint_indices : wp.array(dtype=wp.int32),
-            in_mapped_joint_scales  : wp.array(dtype=wp.float32),
-            in_mapped_joint_offsets : wp.array(dtype=wp.transform),
-            in_scale_animation      : wp.bool,
-            out_result              : wp.array(dtype=wp.transform)
+            in_num_mapped_joints      : wp.int32,
+            in_global_pose            : wp.array(dtype=wp.transform),
+            in_mapped_joint_indices   : wp.array(dtype=wp.int32),
+            in_mapped_joint_scales    : wp.array(dtype=wp.float32),
+            in_mapped_joint_offsets   : wp.array(dtype=wp.transform),
+            in_mapped_world_offsets   : wp.array(dtype=wp.vec3),
+            in_scale_animation        : wp.bool,
+            out_result                : wp.array(dtype=wp.transform)
         ):
             HumanToRobotScaler.wp_compute_scaled_effectors(
                 in_num_mapped_joints, in_global_pose, in_mapped_joint_indices,
-                in_mapped_joint_scales, in_mapped_joint_offsets, in_scale_animation, out_result)
+                in_mapped_joint_scales, in_mapped_joint_offsets, in_mapped_world_offsets,
+                in_scale_animation, out_result)
 
         wp_global_pose = wp.array([wp.transform_identity()] * skeleton_instance.num_joints, dtype=wp.transform)
         wp.launch(
@@ -122,6 +136,7 @@ class HumanToRobotScaler:
                 self.mapped_joint_indices,
                 self.mapped_joint_scales,
                 self.mapped_joint_offsets,
+                self.mapped_joint_world_offsets,
                 scale_animation
             ],
             outputs=[wp_effectors])
@@ -165,18 +180,20 @@ class HumanToRobotScaler:
 
         @wp.kernel
         def batched_compute_scaled_effectors_2d_kernel(
-            in_num_mapped_joints    : wp.int32,
-            in_global_pose          : wp.array2d(dtype=wp.transform),
-            in_mapped_joint_indices : wp.array(dtype=wp.int32),
-            in_mapped_joint_scales  : wp.array(dtype=wp.float32),
-            in_mapped_joint_offsets : wp.array(dtype=wp.transform),
-            in_scale_animation      : wp.bool,
-            out_result              : wp.array2d(dtype=wp.transform)
+            in_num_mapped_joints     : wp.int32,
+            in_global_pose           : wp.array2d(dtype=wp.transform),
+            in_mapped_joint_indices  : wp.array(dtype=wp.int32),
+            in_mapped_joint_scales   : wp.array(dtype=wp.float32),
+            in_mapped_joint_offsets  : wp.array(dtype=wp.transform),
+            in_mapped_world_offsets  : wp.array(dtype=wp.vec3),
+            in_scale_animation       : wp.bool,
+            out_result               : wp.array2d(dtype=wp.transform)
         ):
             frame_idx = wp.tid()
             HumanToRobotScaler.wp_compute_scaled_effectors(
                in_num_mapped_joints, in_global_pose[frame_idx], in_mapped_joint_indices,
-               in_mapped_joint_scales, in_mapped_joint_offsets, in_scale_animation, out_result[frame_idx])
+               in_mapped_joint_scales, in_mapped_joint_offsets, in_mapped_world_offsets,
+               in_scale_animation, out_result[frame_idx])
 
         wp_global_poses = wp.empty(shape=(animation_buffer.num_frames, self.skeleton.num_joints), dtype=wp.transform)
         wp.launch(
@@ -199,6 +216,7 @@ class HumanToRobotScaler:
                 self.mapped_joint_indices,
                 self.mapped_joint_scales,
                 self.mapped_joint_offsets,
+                self.mapped_joint_world_offsets,
                 scale_animation
             ],
             outputs=[wp_effectors])
@@ -243,13 +261,14 @@ class HumanToRobotScaler:
 
     @wp.func
     def wp_compute_scaled_effectors(
-        in_num_mapped_joints    : wp.int32,
-        in_global_pose          : wp.array(dtype=wp.transform),
-        in_mapped_joint_indices : wp.array(dtype=wp.int32),
-        in_mapped_joint_scales  : wp.array(dtype=wp.float32),
-        in_mapped_joint_offsets : wp.array(dtype=wp.transform),
-        in_scale_animation      : wp.bool,
-        out_result              : wp.array(dtype=wp.transform)
+        in_num_mapped_joints     : wp.int32,
+        in_global_pose           : wp.array(dtype=wp.transform),
+        in_mapped_joint_indices  : wp.array(dtype=wp.int32),
+        in_mapped_joint_scales   : wp.array(dtype=wp.float32),
+        in_mapped_joint_offsets  : wp.array(dtype=wp.transform),
+        in_mapped_world_offsets  : wp.array(dtype=wp.vec3),
+        in_scale_animation       : wp.bool,
+        out_result               : wp.array(dtype=wp.transform)
     ):
         root_t = in_global_pose[in_mapped_joint_indices[0]].p
 
@@ -265,5 +284,5 @@ class HumanToRobotScaler:
             geocentric_scaled_t = wp.cw_mul((pose_tx.p - root_t), scale)
 
             q = wp.mul(pose_tx.q, offset_tx.q)
-            t = geocentric_scaled_t + scaled_root_t + wp.quat_rotate(q, offset_tx.p)
+            t = geocentric_scaled_t + scaled_root_t + wp.quat_rotate(q, offset_tx.p) + in_mapped_world_offsets[i]
             out_result[i] = wp.transform(t, q)

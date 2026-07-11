@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+from pathlib import Path
+
 import newton
 
 import pathlib
@@ -49,11 +51,16 @@ class Viewer:
         self.playback_total_time = 0.0
 
         self.retarget_source_options = ['soma']
-        self.retarget_target_options = ['unitree_g1']
+        self.retarget_target_options = ['unitree_g1', 'agibot_x2_ultra']
         self.retarget_solver_options = ['Newton']
         self.retarget_solver_idx     = 0
-        self.retarget_target_idx     = 0
         self.retarget_source_idx     = 0
+
+        cfg_target = self.config.get('retarget_target', 'unitree_g1')
+        if cfg_target in self.retarget_target_options:
+            self.retarget_target_idx = self.retarget_target_options.index(cfg_target)
+        else:
+            self.retarget_target_idx = 0
 
         self.show_skeleton_mesh = True
         self.show_skeleton = False
@@ -63,25 +70,23 @@ class Viewer:
         self.viewer.renderer.set_title("BVH to CSV Converter")
         self.viewer.register_ui_callback(lambda ui: self.gui(ui), position="free")
 
-        g1_builder = newton.ModelBuilder()
-        g1_builder.add_mjcf(
-            newton.utils.download_asset("unitree_g1") / "mjcf/g1_29dof_rev_1_0.xml")
+        robot_builder = self._create_robot_builder(self.retarget_target_options[self.retarget_target_idx])
         
         self.num_robots = 1
         self.robot_offsets = [wp.transform(wp.vec3(0.0, i - (self.num_robots - 1) / 2.0, 0.0), wp.quat_identity()) for i in range(self.num_robots)]
         builder = newton.ModelBuilder()
         builder.add_ground_plane()
         for _ in range(self.num_robots):
-            builder.add_builder(g1_builder, wp.transform_identity())
+            builder.add_builder(robot_builder, wp.transform_identity())
         self.model = builder.finalize()
 
         self.viewer.set_model(self.model)
         self.viewer.set_world_offsets([0, 0, 0])
         self.state = self.model.state()
 
-        self.g1_num_joint_q = self.model.joint_coord_count // self.model.articulation_count
-        self.g1_joint_q_offsets = [int(i * self.g1_num_joint_q) for i in range(self.model.articulation_count)]
-        self.g1_default_joint_q_values = self.model.joint_q.numpy()
+        self.robot_num_joint_q = self.model.joint_coord_count // self.model.articulation_count
+        self.robot_joint_q_offsets = [int(i * self.robot_num_joint_q) for i in range(self.model.articulation_count)]
+        self.robot_default_joint_q_values = self.model.joint_q.numpy()
 
         self.coordinate_renderer = CoordinateRenderer()
         self.skeleton = None
@@ -93,12 +98,31 @@ class Viewer:
         self.skeleton_instances = []
         self.robot_csv_animation_buffers = [None for _ in range(self.num_robots)]
 
+    @staticmethod
+    def _create_robot_builder(robot_type: str):
+        builder = newton.ModelBuilder()
+        if robot_type == 'unitree_g1':
+            builder.add_mjcf(
+                newton.utils.download_asset("unitree_g1") / "mjcf/g1_29dof_rev_1_0.xml")
+        elif robot_type == 'agibot_x2_ultra':
+            x2_mjcf = Path(__file__).resolve().parent.parent / "soma_retargeter" / "robot_assets" / "agibot_x2_ultra" / "x2_ultra.xml"
+            builder.add_mjcf(str(x2_mjcf))
+        else:
+            raise ValueError(f"Unknown robot type: {robot_type}")
+        return builder
+
+    def _get_csv_config(self):
+        target = self.retarget_target_options[self.retarget_target_idx]
+        if target == 'agibot_x2_ultra':
+            return csv_utils.AgibotX2Ultra31DOF_CSVConfig()
+        return csv_utils.UnitreeG129DOF_CSVConfig()
+
     def gui(self, ui):
         self.ui_playback_controls(ui)
         self.ui_scene_options(ui)
 
     def load_csv_file(self, path):
-        self.robot_csv_animation_buffers[0] = csv_utils.load_csv(path)
+        self.robot_csv_animation_buffers[0] = csv_utils.load_csv(path, csv_config=self._get_csv_config())
         self.compute_playback_total_time()
 
     def load_bvh_file(self, path):
@@ -139,26 +163,25 @@ class Viewer:
         for i in range(self.num_robots):
             robot_offset = self.robot_offsets[i]
 
-            joint_q_offset = self.g1_joint_q_offsets[i]
+            joint_q_offset = self.robot_joint_q_offsets[i]
             if self.robot_csv_animation_buffers[i] is not None:
                 buffer = self.robot_csv_animation_buffers[i]
-                # Apply visual offset
                 prev_xform = wp.transform(buffer.xform)
                 buffer.xform = robot_offset
 
                 data = buffer.sample(self.playback_time)
-                wp.copy(self.model.joint_q, wp.array(data, dtype=wp.float32), joint_q_offset, 0, self.g1_num_joint_q)
+                wp.copy(self.model.joint_q, wp.array(data, dtype=wp.float32), joint_q_offset, 0, self.robot_num_joint_q)
                 buffer.xform = prev_xform
             else:
                 root_tx = wp.mul(
                     robot_offset,
-                    wp.transform(*self.g1_default_joint_q_values[joint_q_offset:(joint_q_offset + 7)]))
+                    wp.transform(*self.robot_default_joint_q_values[joint_q_offset:(joint_q_offset + 7)]))
 
                 wp.copy(
                     self.model.joint_q,
-                    wp.array(self.g1_default_joint_q_values[joint_q_offset:(joint_q_offset + self.g1_num_joint_q)], dtype=wp.float32),
+                    wp.array(self.robot_default_joint_q_values[joint_q_offset:(joint_q_offset + self.robot_num_joint_q)], dtype=wp.float32),
                     joint_q_offset,
-                    0, self.g1_num_joint_q)
+                    0, self.robot_num_joint_q)
                 wp.copy(self.model.joint_q, wp.array(root_tx[0:7], dtype=wp.float32), joint_q_offset, 0, 7)
 
         newton.eval_fk(self.model, self.model.joint_q, self.model.joint_qd, self.state, None)
@@ -320,7 +343,7 @@ class Viewer:
                     defaultextension=".csv",
                     filetypes=[("CSV files", "*.csv")])
                 if save_path:
-                    csv_utils.save_csv(save_path, self.robot_csv_animation_buffers[0])
+                    csv_utils.save_csv(save_path, self.robot_csv_animation_buffers[0], csv_config=self._get_csv_config())
 
             if self.robot_csv_animation_buffers[0] is None:
                 ui.end_disabled()
@@ -428,13 +451,31 @@ class Viewer:
         retarget_source = self.config['retarget_source']
         retarget_solver = self.config['retargeter']
         retarget_target = self.config["retarget_target"]
+        # Optional retargeter-config override: lets a caller select a non-default
+        # tuning (e.g. chain_matched) without changing the retarget_target.
+        # NewtonPipeline already supports a retarget_config dict override; when
+        # this key is absent it falls back to its built-in lookup.
+        retarget_config_override = None
+        retargeter_config_rel = self.config.get('retargeter_config')
+        if retargeter_config_rel:
+            retargeter_config_path = io_utils.get_config_file(retargeter_config_rel)
+            print(f"[INFO]: Using retargeter_config override -> {retargeter_config_path}")
+            retarget_config_override = io_utils.load_json(retargeter_config_path)
         retarget_pipeline = None
         if (retarget_solver == 'Newton'):
             import soma_retargeter.pipelines.newton_pipeline as newton_pipeline
-            retarget_pipeline = newton_pipeline.NewtonPipeline(bvh_skeleton, retarget_source, retarget_target)
+            retarget_pipeline = newton_pipeline.NewtonPipeline(
+                bvh_skeleton, retarget_source, retarget_target,
+                retarget_config=retarget_config_override,
+            )
         if retarget_pipeline is None:
             print(f"[ERROR]: Invalid retarget solver selected [{retarget_solver}]. Use 'Newton'.")
             exit(-1)
+
+        if retarget_target == 'agibot_x2_ultra':
+            batch_csv_config = csv_utils.AgibotX2Ultra31DOF_CSVConfig()
+        else:
+            batch_csv_config = csv_utils.UnitreeG129DOF_CSVConfig()
 
         nb_retargeted_motions = 0
         start_time = time.time()
@@ -446,7 +487,6 @@ class Viewer:
             animations = []
             for file_path in batch:
                 _, animation = bvh_utils.load_bvh(file_path, bvh_skeleton)
-                # All animations should be on the same skeleton
                 assert expected_num_joints == animation.skeleton.num_joints, (
                     f"[ERROR]: Unexpected number of joints in input motion. Expected {expected_num_joints}, "
                     f"got {animation.skeleton.num_joints}")
@@ -465,7 +505,7 @@ class Viewer:
                     csv_buffer = csv_buffers[i]
                     dst_path = export_path / pathlib.Path(batch[i]).relative_to(import_path).with_suffix(".csv")
                     dst_path.parent.mkdir(parents=True, exist_ok=True)
-                    csv_utils.save_csv(dst_path, csv_buffer)
+                    csv_utils.save_csv(dst_path, csv_buffer, csv_config=batch_csv_config)
 
             nb_retargeted_motions += len(batch)
 
@@ -486,6 +526,16 @@ def main():
         type=lambda x: None if x == "None" else str(x),
         default="./assets/default_bvh_to_csv_converter_config.json",
         help="Input json config file.")
+    parser.add_argument(
+        "--bvh",
+        type=str,
+        default=None,
+        help="Optional BVH clip to pre-load into the interactive viewer.")
+    parser.add_argument(
+        "--csv",
+        type=str,
+        default=None,
+        help="Optional retargeted CSV clip to pre-load into the interactive viewer.")
 
     viewer, args = newton.examples.init(parser)
     if not pathlib.Path(args.config).exists():
@@ -496,6 +546,20 @@ def main():
     with wp.ScopedDevice(args.device):
         app = Viewer(viewer, config)
         if not isinstance(viewer, newton.viewer.ViewerNull):
+            if args.bvh:
+                bvh_path = pathlib.Path(args.bvh).expanduser().resolve()
+                if not bvh_path.is_file():
+                    print(f"[ERROR]: --bvh file not found: {bvh_path}")
+                    exit(1)
+                print(f"[INFO]: Pre-loading BVH: {bvh_path}")
+                app.load_bvh_file(str(bvh_path))
+            if args.csv:
+                csv_path = pathlib.Path(args.csv).expanduser().resolve()
+                if not csv_path.is_file():
+                    print(f"[ERROR]: --csv file not found: {csv_path}")
+                    exit(1)
+                print(f"[INFO]: Pre-loading CSV: {csv_path}")
+                app.load_csv_file(str(csv_path))
             app.run()
         else:
             app.batched_retargeting()

@@ -83,6 +83,51 @@ class UnitreeG129DOF_CSVConfig:
         return row
 
 
+@dataclass
+class AgibotX2Ultra31DOF_CSVConfig:
+    name: str = "agibot_x2_ultra_31dof"
+    csv_header: ClassVar[List[str]] = [
+        "Frame",
+        "root_translateX", "root_translateY", "root_translateZ",
+        "root_rotateX", "root_rotateY", "root_rotateZ",
+        "left_hip_pitch_joint_dof", "left_hip_roll_joint_dof", "left_hip_yaw_joint_dof",
+        "left_knee_joint_dof", "left_ankle_pitch_joint_dof", "left_ankle_roll_joint_dof",
+        "right_hip_pitch_joint_dof", "right_hip_roll_joint_dof", "right_hip_yaw_joint_dof",
+        "right_knee_joint_dof", "right_ankle_pitch_joint_dof", "right_ankle_roll_joint_dof",
+        "waist_yaw_joint_dof", "waist_pitch_joint_dof", "waist_roll_joint_dof",
+        "left_shoulder_pitch_joint_dof", "left_shoulder_roll_joint_dof",
+        "left_shoulder_yaw_joint_dof", "left_elbow_joint_dof",
+        "left_wrist_yaw_joint_dof", "left_wrist_pitch_joint_dof", "left_wrist_roll_joint_dof",
+        "right_shoulder_pitch_joint_dof", "right_shoulder_roll_joint_dof",
+        "right_shoulder_yaw_joint_dof", "right_elbow_joint_dof",
+        "right_wrist_yaw_joint_dof", "right_wrist_pitch_joint_dof", "right_wrist_roll_joint_dof",
+        "head_yaw_joint_dof", "head_pitch_joint_dof"]
+
+    def to_anim_frame(self, csv_row: np.ndarray) -> np.ndarray:
+        """Convert one CSV row (including frame index) into one anim buffer frame."""
+        num_joint_dofs = csv_row.shape[0] - 1
+        anim_row = np.zeros(num_joint_dofs + 1, dtype=np.float32)
+
+        anim_row[0:3] = csv_row[1:4] * 0.01
+        euler = np.deg2rad(csv_row[4:7])
+        quat = wp.quat_rpy(euler[0], euler[1], euler[2])
+        anim_row[3:7] = quat
+        anim_row[7:] = np.deg2rad(csv_row[7:])
+
+        return anim_row
+
+    def to_csv_row(self, frame_idx: int, anim_row: np.ndarray) -> List[float]:
+        """Convert one anim buffer row into a CSV row with this config's layout."""
+        t = wp.vec3(*anim_row[0:3]) * 100.0
+        q = wp.quat(*anim_row[3:7])
+        euler = R.from_quat([q[0], q[1], q[2], q[3]]).as_euler("xyz", degrees=True)
+
+        row = [frame_idx, t[0], t[1], t[2], euler[0], euler[1], euler[2]]
+        row.extend(np.rad2deg(anim_row[7:]))
+
+        return row
+
+
 def load_csv(file_path: str, fps: float = 120.0, csv_config: RobotCSVConfig = UnitreeG129DOF_CSVConfig()) -> CSVAnimationBuffer:
     """
     Load a robot motion CSV file into a ``CSVAnimationBuffer``.

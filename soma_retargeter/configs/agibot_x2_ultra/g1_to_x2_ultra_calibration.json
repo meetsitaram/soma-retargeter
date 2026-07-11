@@ -1,0 +1,66 @@
+{
+  "_note": "Self-contained G1->X2 calibration. Regenerate with scripts/dev/calibrate_g1_to_x2.py.",
+  "position_scale": 0.8235,
+  "position_scale_center": "clip_start_floor",
+  "shoulder_elbow_fit": {
+    "left_shoulder_pitch_joint": [
+      0.94005,
+      -0.4308
+    ],
+    "left_shoulder_roll_joint": [
+      0.76055,
+      -18.1149
+    ],
+    "left_shoulder_yaw_joint": [
+      0.85126,
+      -4.3932
+    ],
+    "left_elbow_joint": [
+      1.1194,
+      -79.1041
+    ],
+    "right_shoulder_pitch_joint": [
+      0.69864,
+      0.2067
+    ],
+    "right_shoulder_roll_joint": [
+      0.99352,
+      21.1384
+    ],
+    "right_shoulder_yaw_joint": [
+      0.931,
+      -1.8982
+    ],
+    "right_elbow_joint": [
+      1.13695,
+      -85.3979
+    ]
+  },
+  "wrist_remap": {
+    "left_wrist_yaw_joint": [
+      "left_wrist_roll_joint",
+      -1.0
+    ],
+    "left_wrist_pitch_joint": [
+      "left_wrist_pitch_joint",
+      1.0
+    ],
+    "left_wrist_roll_joint": [
+      "left_wrist_yaw_joint",
+      1.0
+    ],
+    "right_wrist_yaw_joint": [
+      "right_wrist_roll_joint",
+      -1.0
+    ],
+    "right_wrist_pitch_joint": [
+      "right_wrist_pitch_joint",
+      1.0
+    ],
+    "right_wrist_roll_joint": [
+      "right_wrist_yaw_joint",
+      1.0
+    ]
+  },
+  "wrist_remap_note": "Pronation joint differs by vendor name: G1 wrist_roll == X2 wrist_yaw (axis along forearm). Values clamped to X2 joint limits at apply time."
+}

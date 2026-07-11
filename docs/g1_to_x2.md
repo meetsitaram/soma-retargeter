@@ -3,8 +3,8 @@
 A **standalone retargeting method** that maps **Unitree G1** motion onto the **Agibot X2
 Ultra**, sitting alongside the existing SOMA→X2 recipes (`soma_to_x2_ultra`,
 `chain_matched`, …). Where those retarget a *human* (SOMA) source, this one retargets a
-*robot* (G1) source — for taking motions that only exist on G1 (e.g. G1 planner / policy
-captures, or the bones-SEED corpus already retargeted to G1) onto X2.
+*robot* (G1) source — for taking motions that only exist on G1 (e.g. external/third-party
+G1 captures, or the bones-SEED corpus already retargeted to G1) onto X2.
 
 It **reuses the same Newton IK solver** as the SOMA path, but drives it from **G1
 forward-kinematics keypoints** instead of a human skeleton, then fixes the arms with a
@@ -22,7 +22,7 @@ and correct, un-splayed, expressive arms on dances.
 ```mermaid
 flowchart TD
     BVH["SOMA human BVH<br/>(bones-SEED)"] -->|"bvh_to_csv_converter<br/>retarget_target: unitree_g1"| G1CSV["G1 CSV<br/>(root + 29 DOF)"]
-    G1planner["G1 planner / policy capture"] -.->|"(no SOMA source)"| G1CSV
+    G1capture["External G1 capture"] -.->|"(no SOMA source)"| G1CSV
 
     subgraph M["g1_to_x2_pipeline.py  (this method)"]
         direction TB
@@ -124,7 +124,7 @@ placement, so the offset is skipped when `floor_clamp` is on.
 | `scripts/dev/calibrate_g1_to_x2.py` | (maintenance) re-derive the calibration config |
 
 The calibration config is **self-contained** (the shoulder/elbow fit is baked in), so the
-method runs on G1 motions that have **no** X2 ground truth (e.g. G1 planner captures).
+method runs on G1 motions that have **no** X2 ground truth (e.g. external G1 captures).
 
 ### Regenerating the calibration
 

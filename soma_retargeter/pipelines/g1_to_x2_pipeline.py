@@ -254,6 +254,35 @@ class G1ToX2Retargeter:
         elif self.foot_ground_offset_cm:
             self._lift_root_z(out_csv, self.foot_ground_offset_cm)
 
+    def retarget_batch(self, items) -> int:
+        """Retarget many clips in ONE batched IK call (num_envs = len(items)).
+
+        items: list of (g1_csv, out_csv). Far faster than per-clip retarget() for
+        bulk runs -- the X2 IK solves all clips in parallel on the GPU. Clips of
+        different lengths are fine (execute returns each at its own length); for
+        best GPU efficiency batch clips of similar length together.
+        Returns the number of clips written.
+        """
+        n = self.pipe.num_initialization_frames + self.pipe.num_stabilization_frames
+        padded = []
+        for g1_csv, _ in items:
+            kp = self._keypoints(g1_csv).astype(np.float32)
+            p = np.concatenate([np.repeat(kp[:1], n, axis=0), kp], axis=0) if n else kp
+            padded.append(np.ascontiguousarray(p, dtype=np.float32))
+        self.pipe.clear()
+        self.pipe.input_targets = padded
+        self.pipe.input_sample_rates = [120.0] * len(items)
+        self.pipe.max_frames = max(len(p) for p in padded)
+        results = self.pipe.execute()
+        for (g1_csv, out_csv), res in zip(items, results):
+            csv_utils.save_csv(out_csv, res, csv_config=self.csv_cfg)
+            self._arm_jointmap(out_csv, g1_csv)
+            if self.floor_clamp:
+                self._floor_clamp(out_csv, g1_csv)
+            elif self.foot_ground_offset_cm:
+                self._lift_root_z(out_csv, self.foot_ground_offset_cm)
+        return len(items)
+
     def retarget_dir(self, g1_dir: str, out_dir: str) -> int:
         """Retarget every G1 CSV in g1_dir; returns the count converted."""
         os.makedirs(out_dir, exist_ok=True)

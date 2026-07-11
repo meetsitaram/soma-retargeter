@@ -97,6 +97,16 @@ All wrist values are **clamped to X2 joint limits**. X2's pronation range (±146
 than G1's, so palm-roll is fully reproduced; only extreme flexion (X2 `wrist_pitch` is just
 ±32°) is hardware-capped.
 
+### Foot grounding
+
+The feet stabilizer matches ankle-roll **link origins**, but X2's sole sits ~7.3 cm below its
+ankle origin while G1's foot is only ~3.5 cm below — so X2's bigger foot otherwise sinks
+~5 cm into the floor. A constant root lift (`foot_ground_offset_cm`, default **4.4 cm** =
+`X2_offset − scale·G1_offset` plus stance flex) rests the soles on the ground. It is a pure
+vertical offset, so joint angles and relative foot motion (swing clearance) are unchanged.
+Applied on the normal path only — the acrobatic **floor-clamp** does its own per-frame ground
+placement, so the offset is skipped when `floor_clamp` is on.
+
 ---
 
 ## Files
@@ -106,7 +116,9 @@ than G1's, so palm-roll is fully reproduced; only extreme flexion (X2 `wrist_pit
 | `soma_retargeter/pipelines/g1_to_x2_pipeline.py` | The method — `G1ToX2Retargeter` class (FK → scale → inject → arm map) |
 | `app/g1_csv_to_x2_csv.py` | Batch entry point: G1-CSV-dir → X2-CSV-dir |
 | `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_retargeter_config.json` | IK config (arm `r_weight = 0`) |
-| `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_calibration.json` | Self-contained: `position_scale`, baked shoulder/elbow fit, wrist remap |
+| `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_calibration.json` | Self-contained: `position_scale`, `foot_ground_offset_cm`, baked shoulder/elbow fit, wrist remap |
+| `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_acrobatic_{retargeter_config,calibration}.json` | Airborne/inverted variant (see [Acrobatic motion](#acrobatic--airborne-motion)) |
+| `scripts/g1_qpos_to_soma_csv.py` | Import an external G1 qpos CSV (`pos[m]+quat+29 joints[rad]`) into the G1 CSV format |
 | `scripts/diff_x2_csvs.py` | Validation — per-DOF + per-body FK diff of two X2 CSV sets |
 | `scripts/view_g1_x2.py` | 3-up MuJoCo viewer: G1 \| X2-from-G1 \| X2-GT |
 | `scripts/dev/calibrate_g1_to_x2.py` | (maintenance) re-derive the calibration config |
@@ -169,6 +181,52 @@ compared against a *different* recipe (`x2/` legacy) and are inherently harder t
 
 ---
 
+## Acrobatic / airborne motion
+
+The default recipe assumes **upright, feet-on-ground locomotion**. Two of its
+stages break on airborne or inverted motion (cartwheels, backflips):
+
+- **Scale about the clip-start floor** vertically *squashes* the flight phase
+  (as the pelvis rises, scaling about a fixed ground point pulls it back down).
+- **The feet stabilizer** yanks the airborne feet toward the ground.
+
+![G1 (left) and X2 (right) — cartwheel](../assets/docs/g1_x2_cartwheel.gif)
+![G1 (left) and X2 (right) — backflip](../assets/docs/g1_x2_backflip.gif)
+
+*Cartwheel and backflip retargeted G1 → X2 with `--acrobatic`. Source motions are
+third-party G1 captures.*
+
+The **`--acrobatic`** flag (or the `g1_to_x2_ultra_acrobatic_*` configs) swaps in
+three changes:
+
+1. **`position_scale_center: "pelvis"`** — scale to X2 proportions about *each
+   frame's own pelvis*, preserving the root's vertical/rotational travel (the
+   flight arc) instead of squashing it. (A `"contact_floor"` mode also exists,
+   centering on the per-frame lowest keypoint, for continuous-contact motion.)
+2. **`enable_post_processing: false`** — feet stabilizer off, so airborne feet
+   are not pulled down.
+3. **Geometry floor-clamp** (`floor_clamp: true`) — after IK, FK both robots and
+   per-frame shift the X2 root in Z so X2's **lowest body tracks G1's lowest
+   body**. This plants whatever limb is actually on the floor — feet in stance,
+   **hands in a handstand**, nothing mid-flight — without assuming feet contact.
+
+```bash
+# import an external G1 qpos CSV (LAFAN-style: pos[m] + quat + 29 joints[rad])
+.venv/bin/python scripts/g1_qpos_to_soma_csv.py --src cartwheel.csv --dst g1/cartwheel.csv
+# retarget with the acrobatic recipe
+.venv/bin/python app/g1_csv_to_x2_csv.py --g1-dir g1 --out-dir x2 --acrobatic
+```
+
+> **Source data caveat:** for fast full-rotation motion, use the **original
+> capture**, not a frame-rate-resampled export. Resampling (e.g. 30 → 50 fps)
+> linearly interpolates the root quaternion/height through the 360° flip and
+> smears it — mangling the import *and* everything downstream. Prefer the
+> source-fps CSV.
+
+The default (walk/dance) path is unchanged by these additions — `--acrobatic` is
+strictly opt-in, and every stock config keeps `position_scale_center:
+"clip_start_floor"` with the feet stabilizer and floor-clamp off.
+
 ## Limitations
 
 - **Wrist flexion is hardware-capped.** X2 `wrist_pitch` is ±32° (vs G1 ±93°), so extreme
@@ -177,3 +235,7 @@ compared against a *different* recipe (`x2/` legacy) and are inherently harder t
 - **Wrist deviates from SOMA→X2 GT by design** — it tracks intent, not the GT's compromise.
 - **Shoulder/elbow fit** is a single global linear map baked from a handful of paired clips;
   it is robust but not per-clip optimal on very extreme poses.
+- **Acrobatic mode is kinematic and best-effort.** `--acrobatic` reproduces the *pose and
+  ground contact* of airborne/inverted G1 motion, but does not enforce dynamic feasibility
+  (momentum, balance) or self-collision on X2. Extreme tucks may hit X2 joint limits, and
+  the floor-clamp assumes a flat ground plane at z = 0.

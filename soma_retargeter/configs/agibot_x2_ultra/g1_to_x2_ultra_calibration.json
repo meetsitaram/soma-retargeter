@@ -2,6 +2,7 @@
   "_note": "Self-contained G1->X2 calibration. Regenerate with scripts/dev/calibrate_g1_to_x2.py.",
   "position_scale": 0.8235,
   "position_scale_center": "clip_start_floor",
+  "foot_ground_offset_cm": 4.4,
   "shoulder_elbow_fit": {
     "left_shoulder_pitch_joint": [
       0.94005,

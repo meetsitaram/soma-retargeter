@@ -97,6 +97,16 @@ All wrist values are **clamped to X2 joint limits**. X2's pronation range (±146
 than G1's, so palm-roll is fully reproduced; only extreme flexion (X2 `wrist_pitch` is just
 ±32°) is hardware-capped.
 
+### Foot grounding
+
+The feet stabilizer matches ankle-roll **link origins**, but X2's sole sits ~7.3 cm below its
+ankle origin while G1's foot is only ~3.5 cm below — so X2's bigger foot otherwise sinks
+~5 cm into the floor. A constant root lift (`foot_ground_offset_cm`, default **4.4 cm** =
+`X2_offset − scale·G1_offset` plus stance flex) rests the soles on the ground. It is a pure
+vertical offset, so joint angles and relative foot motion (swing clearance) are unchanged.
+Applied on the normal path only — the acrobatic **floor-clamp** does its own per-frame ground
+placement, so the offset is skipped when `floor_clamp` is on.
+
 ---
 
 ## Files
@@ -106,7 +116,7 @@ than G1's, so palm-roll is fully reproduced; only extreme flexion (X2 `wrist_pit
 | `soma_retargeter/pipelines/g1_to_x2_pipeline.py` | The method — `G1ToX2Retargeter` class (FK → scale → inject → arm map) |
 | `app/g1_csv_to_x2_csv.py` | Batch entry point: G1-CSV-dir → X2-CSV-dir |
 | `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_retargeter_config.json` | IK config (arm `r_weight = 0`) |
-| `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_calibration.json` | Self-contained: `position_scale`, baked shoulder/elbow fit, wrist remap |
+| `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_calibration.json` | Self-contained: `position_scale`, `foot_ground_offset_cm`, baked shoulder/elbow fit, wrist remap |
 | `soma_retargeter/configs/agibot_x2_ultra/g1_to_x2_ultra_acrobatic_{retargeter_config,calibration}.json` | Airborne/inverted variant (see [Acrobatic motion](#acrobatic--airborne-motion)) |
 | `scripts/g1_qpos_to_soma_csv.py` | Import an external G1 qpos CSV (`pos[m]+quat+29 joints[rad]`) into the G1 CSV format |
 | `scripts/diff_x2_csvs.py` | Validation — per-DOF + per-body FK diff of two X2 CSV sets |

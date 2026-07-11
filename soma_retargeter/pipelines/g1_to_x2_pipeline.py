@@ -89,6 +89,12 @@ class G1ToX2Retargeter:
         self.wrist_remap = self.calib["wrist_remap"]             # {x2_joint: [g1_joint, sign]}
         # airborne/acrobatic post-process: per-frame vertical clamp to G1 (off by default)
         self.floor_clamp = bool(self.calib.get("floor_clamp", False))
+        # constant root lift (cm) so X2's soles rest on the ground. The feet
+        # stabilizer matches ankle-roll link ORIGINS, but X2's sole sits ~7.3 cm
+        # below its ankle origin vs G1's ~3.5 cm, so X2's bigger foot otherwise
+        # sinks ~5 cm. Applied on the normal path only (the floor-clamp handles
+        # ground placement itself). See docs/g1_to_x2.md.
+        self.foot_ground_offset_cm = float(self.calib.get("foot_ground_offset_cm", 0.0))
 
         # G1 FK model + tracked body ids
         self.g1_model = mujoco.MjModel.from_xml_path(g1_mjcf or _g1_mjcf_path())
@@ -229,6 +235,15 @@ class G1ToX2Retargeter:
             f.write(header + "\n")
             np.savetxt(f, x2, delimiter=",", fmt="%.6f")
 
+    def _lift_root_z(self, out_csv: str, cm: float) -> None:
+        """Add a constant offset (cm) to the X2 root_translateZ column."""
+        x2 = np.loadtxt(out_csv, delimiter=",", skiprows=1, dtype=np.float64)
+        x2[:, 3] += cm
+        header = open(out_csv).readline().strip()
+        with open(out_csv, "w") as f:
+            f.write(header + "\n")
+            np.savetxt(f, x2, delimiter=",", fmt="%.6f")
+
     # -- public API ----------------------------------------------------------
     def retarget(self, g1_csv: str, out_csv: str) -> None:
         """Retarget a single G1 CSV to an X2 CSV written at out_csv."""
@@ -236,6 +251,8 @@ class G1ToX2Retargeter:
         self._arm_jointmap(out_csv, g1_csv)
         if self.floor_clamp:
             self._floor_clamp(out_csv, g1_csv)
+        elif self.foot_ground_offset_cm:
+            self._lift_root_z(out_csv, self.foot_ground_offset_cm)
 
     def retarget_dir(self, g1_dir: str, out_dir: str) -> int:
         """Retarget every G1 CSV in g1_dir; returns the count converted."""

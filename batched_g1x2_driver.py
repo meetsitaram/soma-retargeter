@@ -18,6 +18,38 @@ ACRO_CFG = f"{CFGDIR}/g1_to_x2_ultra_acrobatic_retargeter_config.json"
 ACRO_CAL = f"{CFGDIR}/g1_to_x2_ultra_acrobatic_calibration.json"
 
 
+def sanity_check(csv_path, fps, max_jump=1.0, max_yaw_rate=6.0, max_tilt_frac=0.01):
+    """Post-solve output check: catches wrong-IK-basin solutions (folded/rolled
+    body tracking the keypoints from inside a bad basin) that produced the
+    2026-07 kplanner corpus corruption. Returns list of failed check names.
+
+    NOTE for upright thresholds: acrobatic clips (cartwheels etc.) legitimately
+    tilt; pass max_tilt_frac=1.0 to disable the tilt check for --acrobatic runs.
+    """
+    m = np.loadtxt(csv_path, delimiter=",", skiprows=1, dtype=np.float64)
+    if m.ndim == 1 or m.shape[0] < 3:
+        return []
+    fails = []
+    rx, ry = m[:, 4], m[:, 5]                       # root euler deg
+    norm = lambda a: np.abs((a + 180.0) % 360.0 - 180.0)
+    tilt = np.maximum(norm(rx), norm(ry)) > 60.0
+    if tilt.mean() > max_tilt_frac:
+        fails.append(f"tilt({tilt.mean() * 100:.0f}%)")
+    dof = np.deg2rad(m[:, 7:])
+    j = np.abs(np.diff(dof, axis=0)).max() if dof.shape[0] > 1 else 0.0
+    if j > max_jump:
+        fails.append(f"jump({j:.2f})")
+    # hip pitch far past limits = folded-body basin even with an upright root
+    hip = np.abs(dof[:, [0, 6]]) > 2.0              # left/right hip pitch, rad
+    if hip.any(axis=1).mean() > max_tilt_frac:
+        fails.append(f"hip_pitch({hip.any(axis=1).mean() * 100:.0f}%)")
+    yaw = np.unwrap(np.deg2rad(m[:, 6]))
+    yr = np.abs(np.diff(yaw)) * fps
+    if yr.size and yr.max() > max_yaw_rate:
+        fails.append(f"yaw_rate({yr.max():.1f})")
+    return fails
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--g1-dir", required=True)
@@ -64,6 +96,7 @@ def main():
 
     wp.init()
     done = 0
+    rejected = 0
     with wp.ScopedDevice(args.device):
         r = G1ToX2Retargeter(retargeter_config=cfg, calibration=cal)
         print(f"[driver] config={'ACROBATIC/floor-clamp' if args.acrobatic else 'pin-root/offset'} "
@@ -91,8 +124,20 @@ def main():
                     r._floor_clamp(out_csv, g1_csv)
                 elif r.foot_ground_offset_cm:
                     r._lift_root_z(out_csv, r.foot_ground_offset_cm)
+                fails = sanity_check(
+                    out_csv, args.sample_rate,
+                    max_tilt_frac=1.0 if args.acrobatic else 0.01)
+                if fails:
+                    rej_dir = os.path.join(args.out_dir, "rejected")
+                    os.makedirs(rej_dir, exist_ok=True)
+                    rej = os.path.join(rej_dir, os.path.basename(out_csv))
+                    os.replace(out_csv, rej)
+                    rejected += 1
+                    with open(os.path.join(rej_dir, "rejected.log"), "a") as f:
+                        f.write(f"{os.path.basename(out_csv)}\t{'+'.join(fails)}\n")
+                    print(f"[driver] REJECT {os.path.basename(out_csv)}: {'+'.join(fails)}", flush=True)
             done += len(batch)
-            print(f"[driver] {done}/{len(todo)}", flush=True)
+            print(f"[driver] {done}/{len(todo)} (rejected {rejected})", flush=True)
     print(f"[driver] DONE: {done} clips -> {args.out_dir}", flush=True)
 
 
